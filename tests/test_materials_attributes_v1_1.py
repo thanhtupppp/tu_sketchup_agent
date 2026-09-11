@@ -19,7 +19,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 HOST = "127.0.0.1"
 PORT = 9876
 TOKEN = "tu-local-secret"
-EXPECTED_PROTOCOL = "1.1"
+EXPECTED_PROTOCOLS = ["1.1", "1.2"]
 
 
 def git_revision() -> str:
@@ -68,8 +68,8 @@ def run_suite():
     assert ping.get("ok") is True, f"Ping thất bại: {ping}"
     protocol = ping.get("protocol_version")
     min_compat = ping.get("min_compatible_protocol_version")
-    if protocol != EXPECTED_PROTOCOL:
-        print(f"[TEST 01] Protocol Version: {protocol} (Kỳ vọng: {EXPECTED_PROTOCOL})")
+    if protocol not in EXPECTED_PROTOCOLS:
+        print(f"[TEST 01] Protocol Version: {protocol} (Kỳ vọng trong {EXPECTED_PROTOCOLS})")
         print("         => CẦN RELOAD EXTENSION: Trong SketchUp, chọn menu 'Extensions -> Tu SketchUp Agent -> Reload Extension'")
         print("         => Hoặc trong Ruby Console: load File.expand_path('~/AppData/Roaming/SketchUp/SketchUp 2026/SketchUp/Plugins/tu_sketchup_agent/main.rb')")
         print("         (Sau khi reload, chạy lại lệnh này để hoàn tất 14 bài kiểm tra v1.1)")

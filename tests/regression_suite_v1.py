@@ -20,7 +20,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 HOST = "127.0.0.1"
 PORT = 9876
 TOKEN = "tu-local-secret"
-EXPECTED_PROTOCOLS = ["1.0", "1.1"]
+EXPECTED_PROTOCOLS = ["1.0", "1.1", "1.2"]
 
 
 def git_revision() -> str:

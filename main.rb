@@ -11,7 +11,7 @@ module TuSketchupAgent
   PORT = 9876 unless const_defined?(:PORT)
   TOKEN = "tu-local-secret" unless const_defined?(:TOKEN)
   MAX_DIMENSION_MM = 1_000_000 unless const_defined?(:MAX_DIMENSION_MM)
-  PROTOCOL_VERSION = "1.1"
+  PROTOCOL_VERSION = "1.2"
   MIN_COMPATIBLE_PROTOCOL_VERSION = "1.0"
 
   @server ||= nil
