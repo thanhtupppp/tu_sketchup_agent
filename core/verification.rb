@@ -4,7 +4,8 @@ module TuSketchupAgent
   module Verification
     extend self
 
-    CONTRACT_VERSION = 2
+    CONTRACT_VERSION = 3
+    DIMENSION_TOLERANCE_MM = 1.0
 
     def entity_target?(result)
       result.is_a?(Hash) && (
@@ -57,7 +58,145 @@ module TuSketchupAgent
       }
     end
 
-    def contract(command:, before_state:, after_state:, transaction:, handler_ok:, result: nil, model: nil)
+    def float_arg(args, key)
+      return nil unless args.is_a?(Hash) && args.key?(key)
+      Float(args[key])
+    rescue ArgumentError, TypeError
+      nil
+    end
+
+    def nearly_equal?(actual, expected, tolerance = DIMENSION_TOLERANCE_MM)
+      (actual.to_f - expected.to_f).abs <= tolerance
+    end
+
+    def verify_bounds(result, entity)
+      return { attempted: false, verified: true, reason: "no_bounds_expectation" } unless entity.respond_to?(:bounds)
+
+      expected = case result[:operation].to_s
+      when "create_box"
+        {
+          width_mm: result[:dimensions_mm].is_a?(Hash) ? result[:dimensions_mm][:width] : nil,
+          depth_mm: result[:dimensions_mm].is_a?(Hash) ? result[:dimensions_mm][:depth] : nil,
+          height_mm: result[:dimensions_mm].is_a?(Hash) ? result[:dimensions_mm][:height] : nil
+        }
+      when "create_cylinder"
+        {
+          width_mm: result[:radius_mm].to_f * 2.0,
+          depth_mm: result[:radius_mm].to_f * 2.0,
+          height_mm: result[:height_mm]
+        }
+      when "create_wall"
+        nil
+      end
+      return { attempted: false, verified: true, reason: "unsupported_bounds_operation" } unless expected
+
+      bounds = entity.bounds
+      actual = {
+        width_mm: bounds.width.to_mm,
+        depth_mm: bounds.height.to_mm,
+        height_mm: bounds.depth.to_mm
+      }
+      checks = expected.transform_values do |value|
+        value.nil? || nearly_equal?(actual[expected.key(value)], value)
+      end
+      # transform_values above cannot safely map duplicate values, so explicitly compare dimensions.
+      checks = {
+        width_mm: expected[:width_mm].nil? || nearly_equal?(actual[:width_mm], expected[:width_mm]),
+        depth_mm: expected[:depth_mm].nil? || nearly_equal?(actual[:depth_mm], expected[:depth_mm]),
+        height_mm: expected[:height_mm].nil? || nearly_equal?(actual[:height_mm], expected[:height_mm])
+      }
+      {
+        attempted: true,
+        verified: checks.values.all?,
+        tolerance_mm: DIMENSION_TOLERANCE_MM,
+        expected_mm: expected,
+        actual_mm: actual,
+        checks: checks
+      }
+    end
+
+    def verify_material(result, entity, args)
+      operation = result[:operation].to_s
+      expected_name = if operation == "set_entity_material"
+        args["material_name"] || args["name"]
+      elsif operation == "clear_entity_material"
+        nil
+      elsif operation == "create_box" || operation == "create_cylinder" || operation == "create_wall"
+        result[:material]
+      end
+      return { attempted: false, verified: true, reason: "no_material_expectation" } if operation.empty? || (expected_name.nil? && operation != "clear_entity_material")
+
+      actual_names = if entity.respond_to?(:material) && entity.material
+        [entity.material.name.to_s]
+      else
+        []
+      end
+      verified = if operation == "clear_entity_material"
+        actual_names.empty?
+      else
+        actual_names.include?(expected_name.to_s)
+      end
+      {
+        attempted: true,
+        verified: verified,
+        expected: expected_name,
+        actual: actual_names
+      }
+    end
+
+    def verify_attributes(result, entity, args)
+      return { attempted: false, verified: true, reason: "not_attribute_operation" } unless result[:operation].to_s == "set_entity_attributes"
+      dict_name = args["dictionary_name"].to_s
+      expected = args["attributes"]
+      return { attempted: false, verified: true, reason: "invalid_attribute_expectation" } unless expected.is_a?(Hash)
+
+      dict = entity.attribute_dictionary(dict_name, false)
+      checks = expected.each_with_object({}) do |(key, value), memo|
+        actual = dict ? dict[key.to_s] : nil
+        memo[key.to_s] = {
+          expected: value,
+          actual: actual,
+          match: actual == value
+        }
+      end
+      {
+        attempted: true,
+        verified: checks.values.all? { |check| check[:match] },
+        dictionary_name: dict_name,
+        attributes: checks
+      }
+    end
+
+    def verify_properties(model, result, args)
+      return { attempted: false, verified: true, reason: "no_property_postcondition" } unless entity_target?(result)
+      return { attempted: false, verified: true, reason: "delete_has_entity_absence_check" } if result[:operation].to_s == "delete"
+
+      metadata = entity_metadata(result)
+      checks = metadata.map do |item|
+        entity = Services::EntityService.find_entity(model, item)
+        next { verified: false, reason: "entity_missing" } unless entity
+
+        bounds = verify_bounds(result, entity)
+        material = verify_material(result, entity, args || {})
+        attributes = verify_attributes(result, entity, args || {})
+        {
+          persistent_id: item[:persistent_id],
+          bounds: bounds,
+          material: material,
+          attributes: attributes,
+          verified: bounds[:verified] && material[:verified] && attributes[:verified]
+        }
+      end
+
+      {
+        attempted: true,
+        verified: checks.all? { |check| check[:verified] },
+        checked_count: checks.length,
+        entities: checks
+      }
+    end
+
+    def contract(command:, before_state:, after_state:, transaction:, handler_ok:, result: nil, model: nil, args: {})
       revision_delta = after_state[:revision].to_i - before_state[:revision].to_i
       committed = transaction[:status].to_s == "committed"
 
@@ -67,7 +206,14 @@ module TuSketchupAgent
         { attempted: false, verified: true, reason: "no_entity_postcondition" }
       end
 
-      verified = handler_ok == true && committed && revision_delta == 1 && entity_verification[:verified]
+      property_verification = if result && model && handler_ok == true
+        verify_properties(model, result, args)
+      else
+        { attempted: false, verified: true, reason: "handler_not_successful" }
+      end
+
+      verified = handler_ok == true && committed && revision_delta == 1 &&
+        entity_verification[:verified] && property_verification[:verified]
 
       {
         verification_contract_version: CONTRACT_VERSION,
@@ -83,7 +229,8 @@ module TuSketchupAgent
           revision_delta: revision_delta,
           session_id_unchanged: before_state[:model_session_id].to_s == after_state[:model_session_id].to_s
         },
-        entity_postcondition: entity_verification
+        entity_postcondition: entity_verification,
+        property_postcondition: property_verification
       }
     end
   end
