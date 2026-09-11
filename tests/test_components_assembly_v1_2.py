@@ -87,8 +87,8 @@ def run_suite():
         # 2. Tạo hình học nền tảng (Box 100x100x50 mm)
         box_res = send("create_box", {"width": 100, "depth": 100, "height": 50, "name": "Box_For_Component"})
         assert box_res.get("ok") is True, f"create_box thất bại: {box_res}"
-        box_pid = box_res.get("persistent_id")
-        assert box_pid, "Thiếu persistent_id cho Box"
+        box_pid = box_res.get("persistent_id") or box_res.get("entity", {}).get("persistent_id")
+        assert box_pid, f"Thiếu persistent_id cho Box: {box_res}"
         print(f"[TEST 02] create_box: Tạo Box (PID: {box_pid}) -> PASS")
 
         # 3. create_component biến Box thành Definition "Comp_Test_Roller"
@@ -156,7 +156,8 @@ def run_suite():
         # 7. place_component_instance lồng vào Sub-assembly (parent_id)
         chassis_res = send("create_box", {"width": 500, "depth": 500, "height": 30, "name": "Assembly_Chassis"})
         assert chassis_res.get("ok") is True, f"Tạo Chassis thất bại: {chassis_res}"
-        chassis_pid = chassis_res.get("persistent_id")
+        chassis_pid = chassis_res.get("persistent_id") or chassis_res.get("entity", {}).get("persistent_id")
+        assert chassis_pid, f"Thiếu persistent_id cho Chassis: {chassis_res}"
         created_pids.append(chassis_pid)
 
         sub_res = send("place_component_instance", {
