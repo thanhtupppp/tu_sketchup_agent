@@ -506,6 +506,7 @@ def sketchup_scale(
     persistent_ids: Optional[list[Union[int, str]]] = None,
     entity_ids: Optional[list[Union[int, str]]] = None,
     ids: Optional[list[Union[int, str]]] = None,
+    scale: Optional[float] = None,
     x_scale: float = 1.0,
     y_scale: float = 1.0,
     z_scale: float = 1.0,
@@ -513,16 +514,22 @@ def sketchup_scale(
 ) -> str:
     """
     Thu phóng (scale) kích thước của một hoặc nhiều đối tượng theo các trục X, Y, Z.
-    
+
     Args:
         persistent_ids: Danh sách Persistent ID của các đối tượng cần scale (chuẩn khuyến nghị chính thức).
         entity_ids: Danh sách Entity ID (tùy chọn).
         ids: (Legacy - chỉ để tương thích ngược).
+        scale: Hệ số thu phóng đồng đều cho cả 3 trục (tiện lợi).
         x_scale: Hệ số thu phóng theo trục X (mặc định 1.0).
         y_scale: Hệ số thu phóng theo trục Y (mặc định 1.0).
         z_scale: Hệ số thu phóng theo trục Z (mặc định 1.0).
         origin: Tọa độ gốc scale [x, y, z] tính bằng mm (mặc định lấy tâm bounding box).
     """
+    if scale is not None:
+        x_scale = scale
+        y_scale = scale
+        z_scale = scale
+
     payload = _build_ids_payload(persistent_ids, entity_ids, ids)
     payload.update({
         "x_scale": x_scale,
@@ -581,14 +588,20 @@ def sketchup_ungroup(
     persistent_id: Optional[Union[int, str]] = None,
     entity_id: Optional[int] = None,
     id: Optional[Union[int, str]] = None,
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
 ) -> str:
     """
-    Rã nhóm (explode) một Group thành các đối tượng rời độc lập.
-    
+    Rã nhóm (explode) một hoặc nhiều Group/Component thành các đối tượng rời độc lập.
+
     Args:
         persistent_id: Persistent ID của Group cần rã nhóm (chuẩn khuyến nghị chính thức).
         entity_id: Entity ID của Group cần rã nhóm (tùy chọn).
         id: (Legacy - chỉ để tương thích ngược).
+        persistent_ids: Danh sách Persistent ID của các Group cần rã nhóm (tùy chọn).
+        entity_ids: Danh sách Entity ID của các Group cần rã nhóm (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
     """
     if persistent_id is not None:
         payload = {"persistent_id": persistent_id}
@@ -596,8 +609,15 @@ def sketchup_ungroup(
         payload = {"entity_id": entity_id}
     elif id is not None:
         payload = {"persistent_id": id}
+    elif persistent_ids and len(persistent_ids) > 0:
+        payload = {"persistent_id": persistent_ids[0]}
+    elif entity_ids and len(entity_ids) > 0:
+        payload = {"entity_id": entity_ids[0]}
+    elif ids and len(ids) > 0:
+        payload = {"persistent_id": ids[0]}
     else:
-        raise ValueError("Phải cung cấp persistent_id hoặc entity_id của Group cần rã")
+        raise ValueError("Phải cung cấp persistent_id hoặc entity_id của Group cần rã nhóm")
+
     res = send_to_sketchup("ungroup", payload)
     return json.dumps(res, indent=2, ensure_ascii=False)
 
