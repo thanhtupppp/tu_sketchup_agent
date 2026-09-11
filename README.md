@@ -1,8 +1,8 @@
 # Tu SketchUp Agent - MCP Bridge cho SketchUp 2026
 
-Hệ thống kết nối AI (Antigravity IDE, Cursor, Claude Desktop) với **Trimble SketchUp 2026** thông qua kiến trúc **Model Context Protocol (MCP)** và **TCP Socket Bridge**.
+Hệ thống cầu nối AI (Antigravity IDE, Cursor, Claude Desktop) với **Trimble SketchUp 2026** thông qua kiến trúc **Model Context Protocol (MCP)** và **TCP Socket Bridge**, hỗ trợ tự động hóa dựng hình, biến đổi hình học, quản lý vật liệu và siêu dữ liệu BIM.
 
-```
+```text
 [ AI Assistant: Antigravity / Cursor / Claude ]
                      │  (stdio MCP Protocol)
                      ▼
@@ -20,58 +20,47 @@ Hệ thống kết nối AI (Antigravity IDE, Cursor, Claude Desktop) với **Tr
 
 ---
 
-## 1. Cấu trúc thư mục
+## 1. Cấu Trúc Thư Mục Dự Án
 
-```
-c:\Users\thanh\AppData\Roaming\SketchUp\SketchUp 2026\SketchUp\Plugins\tu_sketchup_agent\
-├── main.rb                    # Plugin Ruby chạy trong SketchUp (TCP Server + SketchUp API)
-├── tu_sketchup_agent_loader.rb# File đăng ký Extension chuẩn SketchUp
-├── mcp_server.py              # FastMCP Server (Python) giao tiếp với AI Client
-├── test_client.py             # Script Python kiểm tra kết nối socket trực tiếp
-└── README.md                  # Hướng dẫn sử dụng và cấu hình
+```text
+tu_sketchup_agent/
+├── main.rb                           # Extension Ruby chạy trong SketchUp (TCP Server + SketchUp API)
+├── tu_sketchup_agent_loader.rb       # File đăng ký Extension chuẩn của SketchUp
+├── mcp_server.py                     # FastMCP Server (Python) điều phối công cụ MCP
+├── test_client.py                    # Script kiểm tra socket cơ bản
+├── tests/                            # Bộ kiểm thử tự động & hồi quy
+│   ├── models/
+│   │   └── regression_empty.skp      # Model SketchUp trống dùng riêng cho kiểm thử
+│   ├── logs/                         # Nhật ký lưu trữ các lần chạy test
+│   ├── regression_suite_v1.py        # Bộ kiểm thử hồi quy 14 bài kiểm tra chuẩn Protocol v1.0
+│   ├── test_materials_attributes_v1_1.py # Bộ kiểm thử 14 bài chuyên sâu cho Materials & Attributes
+│   └── README.md                     # Tài liệu đặc tả giao thức & quy chuẩn kiểm thử
+├── docs/                             # Bản thiết kế kỹ thuật & tài liệu hướng dẫn
+└── README.md                         # Tài liệu hướng dẫn sử dụng chính thức
 ```
 
 ---
 
-## 2. Kích hoạt trong SketchUp 2026
+## 2. Kích Hoạt Trong SketchUp 2026
 
-### Cách 1: Tải trực tiếp từ Ruby Console
+### Cách 1: Nạp trực tiếp từ Ruby Console
 1. Mở SketchUp 2026.
-2. Vào **Extensions -> Developer -> Ruby Console** (hoặc nhấn phím tắt).
+2. Vào menu **Extensions -> Developer -> Ruby Console**.
 3. Chạy lệnh:
    ```ruby
-   load 'tu_sketchup_agent/main.rb'
+   load File.expand_path("~/AppData/Roaming/SketchUp/SketchUp 2026/SketchUp/Plugins/tu_sketchup_agent/main.rb")
    ```
-4. Menu **Extensions -> Tu SketchUp Agent** sẽ xuất hiện. TCP Bridge được tự động bật sau 1 giây.
+4. Menu **Extensions -> Tu SketchUp Agent** sẽ xuất hiện và TCP Bridge tự động kích hoạt tại cổng `9876`.
 
-### Cách 2: Tự động tải khi mở SketchUp
-- Copy file `tu_sketchup_agent_loader.rb` ra thư mục `Plugins` cha và đổi tên thành `tu_sketchup_agent.rb`:
-  `c:\Users\thanh\AppData\Roaming\SketchUp\SketchUp 2026\SketchUp\Plugins\tu_sketchup_agent.rb`
-
----
-
-## 3. Kiểm tra kết nối Socket (Standalone Test)
-
-Trước khi cấu hình vào MCP Client, bạn có thể kiểm tra kết nối ngay bằng script test:
-
-```powershell
-cd "c:\Users\thanh\AppData\Roaming\SketchUp\SketchUp 2026\SketchUp\Plugins\tu_sketchup_agent"
-python test_client.py
-```
-
-Nếu SketchUp đang mở và TCP Bridge đang chạy, bạn sẽ thấy:
-- Lệnh `ping` trả về OK.
-- Lệnh `model_summary` trả về thông số file đang mở.
-- Khối hộp 500x500x800mm xuất hiện trực tiếp trong SketchUp.
-- Chạy thử mã Ruby thành công.
+### Cách 2: Tự động nạp khi khởi động SketchUp
+Copy file `tu_sketchup_agent_loader.rb` ra thư mục cha `Plugins` và đổi tên thành `tu_sketchup_agent.rb`:
+`%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\tu_sketchup_agent.rb`
 
 ---
 
-## 4. Cấu hình MCP Client
+## 3. Cấu Hình MCP Client
 
-### A. Dành cho Antigravity IDE
-Mở file cấu hình MCP của Antigravity (hoặc thêm vào danh sách MCP Servers):
-
+### A. Antigravity IDE (`mcp_config.json`)
 ```json
 {
   "mcpServers": {
@@ -89,9 +78,7 @@ Mở file cấu hình MCP của Antigravity (hoặc thêm vào danh sách MCP Se
 }
 ```
 
-### B. Dành cho Cursor (`~/.cursor/mcp.json`)
-Thêm vào file cấu hình MCP của Cursor:
-
+### B. Cursor (`~/.cursor/mcp.json`)
 ```json
 {
   "mcpServers": {
@@ -109,9 +96,7 @@ Thêm vào file cấu hình MCP của Cursor:
 }
 ```
 
-### C. Dành cho Claude Desktop (`claude_desktop_config.json`)
-Đường dẫn file: `%APPDATA%\Claude\claude_desktop_config.json`
-
+### C. Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`)
 ```json
 {
   "mcpServers": {
@@ -131,25 +116,131 @@ Thêm vào file cấu hình MCP của Cursor:
 
 ---
 
-## 5. Danh sách MCP Tools khả dụng
+## 4. Danh Sách 27 MCP Tools Khả Dụng
 
+### 4.1. Hệ Thống & Trạng Thái Kết Nối (System & Connection)
 | Tool | Mô tả |
-|------|-------|
-| `sketchup_ping` | Kiểm tra trạng thái bridge TCP tới SketchUp |
-| `sketchup_get_model_info` | Lấy kích thước mô hình, tags, materials, số lượng entity |
-| `sketchup_get_selection` | Lấy chi tiết các đối tượng người dùng đang click chọn trong viewport |
-| `sketchup_execute_ruby` | **Quyền năng tối thượng**: Thực thi bất kỳ đoạn mã Ruby nào trong SketchUp API với chế độ Undo an toàn |
-| `sketchup_create_box` | Tạo khối hộp tham số (mm), vị trí x,y,z, gán tên và vật liệu |
-| `sketchup_create_cylinder` | Tạo khối trụ tròn đứng (mm), bán kính, chiều cao, số phân đoạn |
-| `sketchup_create_wall` | Dựng tường thẳng nối 2 điểm 2D với bề dày và chiều cao (mm) |
-| `sketchup_capture_viewport` | Chụp ảnh màn hình 3D view hiện tại trả về ảnh cho Vision AI |
-| `sketchup_zoom_extents` | Zoom toàn màn hình bao trọn mô hình |
+|---|---|
+| `sketchup_ping` | Kiểm tra kết nối TCP bridge, phiên bản SketchUp, phiên bản giao thức và trạng thái Dev Mode |
+| `sketchup_get_model_info` | Lấy tổng quan kích thước BoundingBox, tags/layers, scenes, materials và revision model |
+| `sketchup_get_selection` | Lấy chi tiết các đối tượng đang được người dùng click chọn trong Viewport |
+| `sketchup_zoom_extents` | Zoom toàn màn hình bao trọn tất cả hình khối trong mô hình |
+| `sketchup_capture_viewport` | Chụp ảnh Viewport 3D góc nhìn hiện tại trả về ảnh cho AI quan sát (Vision) |
+
+### 4.2. Truy Vấn Đối Tượng & Hình Học (Geometry Inspection)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_get_entities` | Liệt kê các đối tượng trong model hoặc bên trong một Group/Component, hỗ trợ lọc theo kiểu (`Face`, `Edge`, `Group`, ...) |
+| `sketchup_get_entity_info` | Tra cứu chi tiết một đối tượng cụ thể (tên, kiểu, layer, vật liệu, tọa độ BoundingBox) |
+| `sketchup_get_bounding_box` | Tính toán kích thước BoundingBox tổng hợp (mm) của một hoặc nhiều đối tượng |
+
+### 4.3. Dựng Hình Học Tham Số (Parametric Geometry Creation)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_create_box` | Tạo khối hộp chữ nhật (mm) theo chiều rộng, sâu, cao, tọa độ x,y,z, tên và vật liệu |
+| `sketchup_create_cylinder` | Tạo khối hình trụ đứng (mm) theo bán kính, chiều cao, số phân đoạn đáy, tên và vật liệu |
+| `sketchup_create_wall` | Dựng bức tường kiến trúc nối 2 điểm 2D với độ dày và chiều cao chỉ định (mm) |
+
+### 4.4. Biến Đổi Hình Học & Thứ Bậc (Transformation & Hierarchy)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_move` | Tịnh tiến đối tượng theo vector khoảng cách `[dx, dy, dz]` (mm) |
+| `sketchup_copy` | Sao chép nhân bản đối tượng kèm vector dịch chuyển `[dx, dy, dz]` (mm) |
+| `sketchup_rotate` | Xoay đối tượng quanh trục chỉ định (`"z"`, `"x"`, `"y"`) theo góc độ (degrees) và tâm xoay |
+| `sketchup_scale` | Thu phóng kích thước đối tượng theo các trục `[x_scale, y_scale, z_scale]` quanh tâm |
+| `sketchup_delete` | Xóa an toàn một hoặc nhiều đối tượng khỏi mô hình |
+| `sketchup_group` | Gom các đối tượng cùng container cha thành một Group mới |
+| `sketchup_ungroup` | Rã nhóm Group/Component trở về container chứa đối tượng |
+
+### 4.5. Quản Lý Vật Liệu (Materials Management — Protocol v1.1)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_get_materials` | Liệt kê vật liệu trong model, hỗ trợ phân trang (`limit`, `offset`) và lọc tên (`name_filter`) |
+| `sketchup_get_material_info` | Tra cứu thông số chi tiết của một vật liệu (mã Hex, RGB, độ trong suốt Alpha, texture) |
+| `sketchup_create_material` | Tạo mới hoặc cập nhật vật liệu (hỗ trợ mã Hex `#RRGGBB`, mảng RGB, alpha, đường dẫn file texture) |
+| `sketchup_set_entity_material` | Gán vật liệu cho Group/ComponentInstance. **Chặn gán trực tiếp lên Face/Edge** để bảo toàn hình học |
+| `sketchup_clear_entity_material` | Xóa vật liệu gán đè trên Group/Component, đưa về màu mặc định |
+
+### 4.6. Thuộc Tính Tùy Biến & BIM Metadata (Attributes — Protocol v1.1)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_get_entity_attributes` | Đọc toàn bộ hoặc lọc theo dictionary từ điển thuộc tính (BIM/specs metadata) của đối tượng |
+| `sketchup_set_entity_attributes` | Ghi các cặp key/value (chuỗi, số thực, số nguyên, bool) vào Attribute Dictionary của Group/Component |
+| `sketchup_delete_entity_attributes` | Xóa key cụ thể hoặc xóa toàn bộ từ điển thuộc tính khỏi đối tượng |
+
+### 4.7. Thực Thi Mã Nhà Phát Triển (Developer Mode Execution)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_execute_ruby` | Thực thi đoạn mã Ruby tùy ý trực tiếp trong SketchUp 2026 |
+
+> [!CAUTION]
+> **CẢNH BÁO BẢO MẬT VỀ `sketchup_execute_ruby`:**
+> `sketchup_execute_ruby` là API thực thi mã tùy ý (Arbitrary Code Execution). Công cụ này **mặc định bị vô hiệu hóa** với mã lỗi `DEV_MODE_REQUIRED`.
+> - Chỉ được kích hoạt khi bật Dev Mode trực tiếp từ máy cục bộ qua menu **Extensions -> Tu SketchUp Agent -> Toggle Dev Mode** hoặc biến môi trường `TU_SKETCHUP_DEV_MODE=1`.
+> - Tuyệt đối không bật Dev Mode trên các file mô hình production đang làm việc.
+> - Lệnh reload extension qua TCP bị chặn vĩnh viễn với mã `FORBIDDEN` để tránh nguy cơ tấn công chiếm quyền qua socket cục bộ.
 
 ---
 
-## 6. Ví dụ câu lệnh ra lệnh cho AI
+## 5. Quy Ước Định Danh Đối Tượng (Entity ID Specification)
 
-- *"Hãy kiểm tra xem SketchUp đã kết nối chưa và cho tôi biết model hiện tại có bao nhiêu đối tượng."*
-- *"Vẽ một căn phòng 4 bức tường kích thước 4000x5000mm, cao 3000mm, độ dày tường 150mm."*
-- *"Tạo một bàn gỗ kích thước 1200x600x750mm ở tọa độ gốc, sau đó zoom extents và chụp ảnh viewport lại cho tôi xem."*
-- *"Chạy mã Ruby lặp qua toàn bộ model và đổi tất cả mặt phẳng có diện tích lớn hơn 2m2 sang màu đỏ."*
+Nhằm đảm bảo tính bền vững khi tương tác với SketchUp Ruby API, các công cụ mutation tuân thủ quy ước định danh:
+
+```text
+persistent_ids : list[int | str]  => [KHUYÊN DÙNG] Bền vững qua các lần lưu file, Undo/Redo và reload session
+entity_ids     : list[int]        => Chỉ có giá trị trong phiên làm việc hiện tại (Runtime Session)
+ids            : list[int | str]  => [LEGACY] Tham số cũ tương thích ngược, tự động ánh xạ sang persistent_ids
+```
+
+Mọi thao tác thay đổi hình khối đều được bọc trong một transaction `model.start_operation` có thể hoàn tác (`Undo`) nguyên tử, đồng thời cập nhật số hiệu `model_revision`.
+
+---
+
+## 6. Giao Thức & Khả Năng Tương Thích Ngược (Cách B)
+
+Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **Protocol v1.1** và **Protocol v1.0**:
+
+* **Ruby Bridge**: Trả về `protocol_version: "1.1"` kèm `min_compatible_protocol_version: "1.0"` trên tất cả các endpoint.
+* **Python FastMCP**: Hỗ trợ tập phiên bản `SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1"}`.
+* Các client v1.0 tuân thủ kiểm tra tương thích đều có thể tiếp tục sử dụng các công cụ nền tảng mà không bị phá vỡ giao tiếp.
+
+---
+
+## 7. Quy Trình Kiểm Thử & An Toàn Vận Hành
+
+### Quy Tắc Dùng Model Kiểm Thử Riêng
+> [!IMPORTANT]
+> **TUYỆT ĐỐI KHÔNG CHẠY TEST TRÊN FILE THIẾT KẾ THẬT.**
+> Trước khi chạy kiểm thử, luôn mở file model trống dành riêng:
+> `tests/models/regression_empty.skp`
+
+### Chạy Bộ Kiểm Thử Tự Động
+
+1. **Biên dịch & kiểm tra cú pháp**:
+   ```powershell
+   python -m py_compile mcp_server.py tests/test_materials_attributes_v1_1.py tests/regression_suite_v1.py
+   python scratch/check_ruby_blocks.py
+   git diff --check
+   ```
+
+2. **Chạy kiểm thử hồi quy nền tảng (Regression v1.0)**:
+   ```powershell
+   python -X utf8 tests/regression_suite_v1.py
+   ```
+   *(Kỳ vọng: 14/14 PASS 100%)*
+
+3. **Chạy kiểm thử tính năng vật liệu & thuộc tính (Materials & Attributes v1.1)**:
+   ```powershell
+   python -X utf8 tests/test_materials_attributes_v1_1.py
+   ```
+   *(Kỳ vọng: 14/14 PASS 100%)*
+
+---
+
+## 8. Quy Trình Phát Triển & Đóng Góp (Git Workflow)
+
+* **Nhánh cơ sở ổn định (Baseline)**: `master` (gắn tag `v1.0.0`).
+* **Nhánh tính năng (Feature Branch)**: `feature/v1.1-materials-attributes` (gắn tag `v1.1.0`).
+* **Quy chuẩn phát hành**:
+  - Không sửa đổi hoặc ghi đè tag `v1.0.0` trên nhánh `master`.
+  - Mọi tính năng mới được hoàn thiện, xác nhận 100% test pass trên branch riêng, sau đó tạo **Pull Request** về nhánh phát hành chính.
