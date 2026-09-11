@@ -123,8 +123,40 @@ def run_suite() -> None:
     assert model_state4.get("model_guid") is not None, "Thiếu model_guid metadata"
     print("[TEST 07] Model session remains stable; GUID exposed as metadata -> PASS")
 
+    stale = send("create_box", {
+        "width": 40,
+        "depth": 40,
+        "height": 40,
+        "name": "Should_Not_Be_Created",
+        "expected_model_revision": model_state3.get("revision"),
+        "expected_model_session_id": session_id,
+    })
+    assert stale.get("ok") is False, f"Stale request phải bị từ chối: {stale}"
+    assert stale.get("error", {}).get("code") == "STALE_MODEL_STATE", f"Sai error code: {stale}"
+    assert stale.get("actual_model_revision") == model_state4.get("revision"), f"Sai actual revision: {stale}"
+    print("[TEST 08] Optimistic concurrency guard rejects stale revision -> PASS")
+
+    guarded = send("create_box", {
+        "width": 60,
+        "depth": 60,
+        "height": 30,
+        "name": "Guarded_ModelState_v1_4",
+        "expected_model_revision": model_state4.get("revision"),
+        "expected_model_session_id": session_id,
+    })
+    assert guarded.get("ok") is True, f"Fresh guarded request thất bại: {guarded}"
+    guarded_pid = guarded.get("persistent_id") or guarded.get("entity", {}).get("persistent_id")
+    assert guarded_pid, f"Guarded create không trả PID: {guarded}"
+    delete_guarded = send("delete", {
+        "persistent_ids": [guarded_pid],
+        "expected_model_revision": model_state4.get("revision") + 1,
+        "expected_model_session_id": session_id,
+    })
+    assert delete_guarded.get("ok") is True, f"Guarded delete thất bại: {delete_guarded}"
+    print("[TEST 09] Fresh revision + session guard accepts valid request -> PASS")
+
     print("-" * 72)
-    print("KẾT QUẢ: 7/7 BÀI TEST MODEL STATE & REVISION v1.4 ĐÃ VƯỢT QUA!")
+    print("KẾT QUẢ: 9/9 BÀI TEST MODEL STATE & REVISION v1.4 ĐÃ VƯỢT QUA!")
     print("=" * 72)
 
 
