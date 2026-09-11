@@ -104,7 +104,9 @@ module TuSketchupAgent
           before_state: before_state,
           after_state: after_state,
           transaction: Operation.last_transaction,
-          handler_ok: result[:ok] == true
+          handler_ok: result[:ok] == true,
+          result: result,
+          model: model
         )
         result[:verification] = verification
 
@@ -113,7 +115,7 @@ module TuSketchupAgent
             request_id,
             command,
             "TRANSACTION_VERIFICATION_FAILED",
-            "Lệnh báo thành công nhưng transaction/model revision không đạt postcondition mong đợi",
+            "Lệnh báo thành công nhưng transaction/model revision/entity postcondition không đạt yêu cầu",
             "TuSketchupAgent::TransactionVerificationError"
           ).merge(verification: verification)
         end
