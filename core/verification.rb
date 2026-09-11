@@ -58,13 +58,6 @@ module TuSketchupAgent
       }
     end
 
-    def float_arg(args, key)
-      return nil unless args.is_a?(Hash) && args.key?(key)
-      Float(args[key])
-    rescue ArgumentError, TypeError
-      nil
-    end
-
     def nearly_equal?(actual, expected, tolerance = DIMENSION_TOLERANCE_MM)
       (actual.to_f - expected.to_f).abs <= tolerance
     end
@@ -74,18 +67,19 @@ module TuSketchupAgent
 
       expected = case result[:operation].to_s
       when "create_box"
-        {
-          width_mm: result[:dimensions_mm].is_a?(Hash) ? result[:dimensions_mm][:width] : nil,
-          depth_mm: result[:dimensions_mm].is_a?(Hash) ? result[:dimensions_mm][:depth] : nil,
-          height_mm: result[:dimensions_mm].is_a?(Hash) ? result[:dimensions_mm][:height] : nil
-        }
+        dimensions = result[:dimensions_mm]
+        dimensions.is_a?(Hash) ? {
+          width_mm: dimensions[:width],
+          depth_mm: dimensions[:depth],
+          height_mm: dimensions[:height]
+        } : nil
       when "create_cylinder"
         {
           width_mm: result[:radius_mm].to_f * 2.0,
           depth_mm: result[:radius_mm].to_f * 2.0,
           height_mm: result[:height_mm]
         }
-      when "create_wall"
+      else
         nil
       end
       return { attempted: false, verified: true, reason: "unsupported_bounds_operation" } unless expected
@@ -96,10 +90,6 @@ module TuSketchupAgent
         depth_mm: bounds.height.to_mm,
         height_mm: bounds.depth.to_mm
       }
-      checks = expected.transform_values do |value|
-        value.nil? || nearly_equal?(actual[expected.key(value)], value)
-      end
-      # transform_values above cannot safely map duplicate values, so explicitly compare dimensions.
       checks = {
         width_mm: expected[:width_mm].nil? || nearly_equal?(actual[:width_mm], expected[:width_mm]),
         depth_mm: expected[:depth_mm].nil? || nearly_equal?(actual[:depth_mm], expected[:depth_mm]),
@@ -121,26 +111,22 @@ module TuSketchupAgent
         args["material_name"] || args["name"]
       elsif operation == "clear_entity_material"
         nil
-      elsif operation == "create_box" || operation == "create_cylinder" || operation == "create_wall"
+      elsif %w[create_box create_cylinder create_wall].include?(operation)
         result[:material]
       end
       return { attempted: false, verified: true, reason: "no_material_expectation" } if operation.empty? || (expected_name.nil? && operation != "clear_entity_material")
 
-      actual_names = if entity.respond_to?(:material) && entity.material
-        [entity.material.name.to_s]
-      else
-        []
-      end
+      actual_name = entity.respond_to?(:material) && entity.material ? entity.material.name.to_s : nil
       verified = if operation == "clear_entity_material"
-        actual_names.empty?
+        actual_name.nil?
       else
-        actual_names.include?(expected_name.to_s)
+        actual_name == expected_name.to_s
       end
       {
         attempted: true,
         verified: verified,
         expected: expected_name,
-        actual: actual_names
+        actual: actual_name
       }
     end
 
