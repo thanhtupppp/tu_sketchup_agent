@@ -11,15 +11,26 @@ PORT = 9876
 TOKEN = "tu-local-secret"
 
 
-def request(method, params=None):
-    payload = json.dumps({"token": TOKEN, "method": method, "params": params or {}}, ensure_ascii=False).encode("utf-8")
-    packet = len(payload).to_bytes(4, "big") + payload
+def request(command, arguments=None):
+    payload = json.dumps(
+        {
+            "token": TOKEN,
+            "command": command,
+            "request_id": "test_v1_6",
+            "arguments": arguments or {},
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    header = f"{len(payload)}\n".encode("utf-8")
     with socket.create_connection((HOST, PORT), timeout=10) as sock:
-        sock.sendall(packet)
-        header = sock.recv(4)
-        if len(header) != 4:
-            raise RuntimeError("Không nhận được response header")
-        size = int.from_bytes(header, "big")
+        sock.sendall(header + payload)
+        line = b""
+        while not line.endswith(b"\n"):
+            chunk = sock.recv(1)
+            if not chunk:
+                raise RuntimeError("Không nhận được response header")
+            line += chunk
+        size = int(line.decode("utf-8").strip())
         body = b""
         while len(body) < size:
             chunk = sock.recv(size - len(body))
@@ -37,11 +48,10 @@ def assert_ok(response):
 def main():
     state = request("get_model_state")
     assert_ok(state)
-    current = state["result"]
+    current = state
     revision = int(current["revision"])
     session_id = current["model_session_id"]
 
-    # Valid guard must allow mutation and advance revision exactly once.
     created = request(
         "create_box",
         {
@@ -54,13 +64,16 @@ def main():
         },
     )
     assert_ok(created)
+    verification = created.get("verification", {})
+    assert verification.get("verified") is True, created
+    assert verification.get("entity_postcondition", {}).get("verified") is True, created
+    assert verification.get("property_postcondition", {}).get("verified") is True, created
 
     created_state = request("get_model_state")
     assert_ok(created_state)
-    after_create = created_state["result"]
+    after_create = created_state
     assert int(after_create["revision"]) == revision + 1
 
-    # Wrong session must be rejected before handler execution.
     wrong_session = request(
         "create_box",
         {
@@ -74,7 +87,6 @@ def main():
     )
     assert wrong_session.get("error", {}).get("code") == "STALE_MODEL_STATE", wrong_session
 
-    # Stale revision must be rejected and must not bump revision.
     stale = request(
         "create_box",
         {
@@ -90,15 +102,12 @@ def main():
 
     final_state = request("get_model_state")
     assert_ok(final_state)
-    assert int(final_state["result"]["revision"]) == int(after_create["revision"])
+    assert int(final_state["revision"]) == int(after_create["revision"])
 
-    # Clean up the test object without a guard so cleanup cannot be blocked by the assertions above.
     created_result = created.get("result", {})
-    ids = created_result.get("persistent_ids") or created_result.get("persistent_id")
-    if ids:
-        if not isinstance(ids, list):
-            ids = [ids]
-        request("delete", {"persistent_ids": ids})
+    persistent_id = created_result.get("persistent_id")
+    if persistent_id:
+        request("delete", {"persistent_id": persistent_id})
 
     print("MODEL STATE GUARD v1.6: PASS")
 
