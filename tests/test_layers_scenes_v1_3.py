@@ -128,10 +128,10 @@ def run_suite():
         print(f"[TEST 05] set_entity_layer: Gán thành công Tag_Chassis và Tag_Hydraulics cho 2 Groups -> PASS")
 
         # 6. Type Safety Check: Chặn gán layer lên Face
-        faces_res = send("get_entities", {"container_id": pid1, "type_filter": "Face"})
+        faces_res = send("get_entities", {"parent_id": pid1, "type_filter": "Face"})
         assert faces_res.get("ok") is True, f"Lấy Face thất bại: {faces_res}"
-        faces = faces_res.get("entities", [])
-        assert len(faces) > 0, "Box 1 không có Face"
+        faces = faces_res.get("items", []) or faces_res.get("entities", [])
+        assert len(faces) > 0, f"Box 1 không có Face: {faces_res}"
         face_pid = faces[0].get("persistent_id")
 
         err_face = send("set_entity_layer", {"layer_name": "Tag_Chassis", "persistent_ids": [face_pid]})
