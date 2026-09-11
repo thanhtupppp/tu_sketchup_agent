@@ -9,6 +9,7 @@ module TuSketchupAgent
 
   FILES = [
     "core/protocol",
+    "core/model_state",
     "core/errors",
     "core/auth",
     "core/operation",
