@@ -8,4 +8,5 @@ module TuSketchupAgent
   class EntityNotFoundError < Error; end
   class ValidationError < Error; end
   class StaleModelStateError < Error; end
+  class TransactionVerificationError < Error; end
 end
