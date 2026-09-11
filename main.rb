@@ -162,6 +162,76 @@ module TuSketchupAgent
     t_pos * t_rot * t_scale
   end
 
+  def setup_camera_preset(camera, preset, perspective = false, bounds = nil)
+    bounds ||= Sketchup.active_model.bounds
+    cx = bounds.center.x
+    cy = bounds.center.y
+    cz = bounds.center.z
+    diag = bounds.diagonal
+    diag = 1000.mm if diag.nil? || diag < 1.mm
+    dist = diag * 2.0
+
+    camera.perspective = !!perspective
+
+    case preset.to_s.downcase.strip
+    when "top"
+      eye = Geom::Point3d.new(cx, cy, cz + dist)
+      target = Geom::Point3d.new(cx, cy, cz)
+      up = Geom::Vector3d.new(0, 1, 0)
+    when "front"
+      eye = Geom::Point3d.new(cx, cy - dist, cz)
+      target = Geom::Point3d.new(cx, cy, cz)
+      up = Geom::Vector3d.new(0, 0, 1)
+    when "right"
+      eye = Geom::Point3d.new(cx + dist, cy, cz)
+      target = Geom::Point3d.new(cx, cy, cz)
+      up = Geom::Vector3d.new(0, 0, 1)
+    when "left"
+      eye = Geom::Point3d.new(cx - dist, cy, cz)
+      target = Geom::Point3d.new(cx, cy, cz)
+      up = Geom::Vector3d.new(0, 0, 1)
+    when "back"
+      eye = Geom::Point3d.new(cx, cy + dist, cz)
+      target = Geom::Point3d.new(cx, cy, cz)
+      up = Geom::Vector3d.new(0, 0, 1)
+    when "iso"
+      offset = dist / Math.sqrt(3)
+      eye = Geom::Point3d.new(cx + offset, cy - offset, cz + offset)
+      target = Geom::Point3d.new(cx, cy, cz)
+      up = Geom::Vector3d.new(0, 0, 1)
+    else
+      return camera
+    end
+
+    camera.set(eye, target, up)
+    camera
+  end
+
+  def camera_metadata(camera)
+    return nil unless camera
+    eye = camera.eye
+    target = camera.target
+    up = camera.up
+    {
+      eye_mm: [eye.x.to_mm.round(1), eye.y.to_mm.round(1), eye.z.to_mm.round(1)],
+      target_mm: [target.x.to_mm.round(1), target.y.to_mm.round(1), target.z.to_mm.round(1)],
+      up: [up.x.round(3), up.y.round(3), up.z.round(3)],
+      perspective: camera.perspective?,
+      fov: camera.fov.round(1)
+    }
+  end
+
+  def layer_metadata(layer)
+    return nil unless layer
+    c = layer.color rescue nil
+    {
+      name: layer.name,
+      visible: layer.visible?,
+      color_hex: c ? sprintf("#%02X%02X%02X", c.red, c.green, c.blue) : nil,
+      color_rgb: c ? [c.red, c.green, c.blue] : nil
+    }
+  end
+
   def material_metadata(mat)
     return nil unless mat && mat.valid?
     c = mat.color
