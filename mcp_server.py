@@ -816,5 +816,164 @@ def sketchup_delete_entity_attributes(
     return json.dumps(res, indent=2, ensure_ascii=False)
 
 
+# ==============================================================================
+# NHÓM 8: QUẢN LÝ COMPONENT & LẮP RÁP (ASSEMBLY MANAGEMENT - v1.2)
+# ==============================================================================
+
+@mcp.tool()
+def sketchup_create_component(
+    name: str,
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
+    description: str = "",
+) -> str:
+    """
+    Tạo một ComponentDefinition mới từ một hoặc nhiều đối tượng hình học (Group, Face, Edge, ...).
+    Nếu chỉ truyền 1 Group, Group đó sẽ được chuyển đổi trực tiếp thành ComponentInstance.
+    Nếu truyền nhiều đối tượng, chúng sẽ được gom lại và chuyển thành ComponentInstance mới.
+
+    Args:
+        name: Tên của ComponentDefinition (ví dụ: "Bearing_6204", "Roller_Shaft").
+        persistent_ids: Danh sách Persistent ID của các đối tượng tạo nên component (khuyên dùng).
+        entity_ids: Danh sách Entity ID (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
+        description: Mô tả chi tiết về component (tùy chọn).
+    """
+    payload = _build_ids_payload(persistent_ids, entity_ids, ids)
+    payload["name"] = name
+    if description:
+        payload["description"] = description
+    res = send_to_sketchup("create_component", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_get_component_definitions(
+    name_filter: Optional[str] = None,
+    include_internal: bool = False,
+) -> str:
+    """
+    Liệt kê danh sách tất cả các ComponentDefinition trong model hiện tại.
+
+    Args:
+        name_filter: Bộ lọc theo tên định nghĩa (không phân biệt hoa thường).
+        include_internal: Nếu True, bao gồm cả các definition nội bộ tự động của Group (mặc định False).
+    """
+    payload: Dict[str, Any] = {"include_internal": include_internal}
+    if name_filter:
+        payload["name_filter"] = name_filter
+    res = send_to_sketchup("get_component_definitions", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_place_component_instance(
+    definition_name: str,
+    position: Optional[list[float]] = None,
+    rotation: Optional[Union[Dict[str, Any], list[float]]] = None,
+    scale: Optional[Union[float, list[float]]] = None,
+    matrix: Optional[list[float]] = None,
+    instance_name: Optional[str] = None,
+    parent_id: Optional[Union[int, str]] = None,
+) -> str:
+    """
+    Chèn một instance mới của ComponentDefinition vào không gian vẽ hoặc cụm lắp ráp cha (sub-assembly).
+    Hỗ trợ 2 chế độ biến đổi:
+    1. Trực quan: position [x, y, z] (mm), rotation {"axis": "x"|"y"|"z", "angle": độ} hoặc [rx, ry, rz], scale (hệ số).
+    2. Ma trận 4x4 raw: matrix (16 số thực column-major).
+
+    Args:
+        definition_name: Tên ComponentDefinition cần chèn.
+        position: Tọa độ chèn [x, y, z] tính theo milimet (mm).
+        rotation: Góc quay, ví dụ {"axis": "z", "angle": 45.0} hoặc Euler angles [rx, ry, rz] theo độ.
+        scale: Tỷ lệ co dãn (float đơn hoặc [sx, sy, sz]).
+        matrix: Mảng 16 số thực ma trận 4x4 biến đổi affine.
+        instance_name: Tên gán riêng cho instance vừa tạo (tùy chọn).
+        parent_id: Persistent ID hoặc Entity ID của Group/Component cha nếu muốn lồng vào sub-assembly (tùy chọn).
+    """
+    payload: Dict[str, Any] = {"definition_name": definition_name}
+    if position is not None:
+        payload["position"] = position
+    if rotation is not None:
+        payload["rotation"] = rotation
+    if scale is not None:
+        payload["scale"] = scale
+    if matrix is not None:
+        payload["matrix"] = matrix
+    if instance_name:
+        payload["instance_name"] = instance_name
+    if parent_id is not None:
+        payload["parent_id"] = parent_id
+    res = send_to_sketchup("place_component_instance", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_make_component_unique(
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
+    new_name: Optional[str] = None,
+) -> str:
+    """
+    Tách riêng một hoặc nhiều ComponentInstance khỏi definition gốc (Make Unique), tạo definition độc lập mới.
+    Rất hữu ích khi cần chỉnh sửa hoặc tùy biến một chi tiết lắp ráp mà không ảnh hưởng đến các chi tiết khác cùng loại.
+
+    Args:
+        persistent_ids: Danh sách Persistent ID của các ComponentInstance cần make unique (khuyên dùng).
+        entity_ids: Danh sách Entity ID (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
+        new_name: Tên mới cho ComponentDefinition độc lập vừa tạo (áp dụng khi make unique 1 instance).
+    """
+    payload = _build_ids_payload(persistent_ids, entity_ids, ids)
+    if new_name:
+        payload["new_name"] = new_name
+    res = send_to_sketchup("make_component_unique", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_save_component_to_skp(
+    definition_name: str,
+    file_path: str,
+    overwrite: bool = False,
+) -> str:
+    """
+    Xuất một ComponentDefinition ra tệp mô hình SketchUp độc lập (.skp) để lưu trữ vào thư viện linh kiện.
+
+    Args:
+        definition_name: Tên ComponentDefinition cần xuất.
+        file_path: Đường dẫn tệp đích đầy đủ (phải có đuôi .skp).
+        overwrite: Nếu True, cho phép ghi đè nếu tệp đã tồn tại (mặc định False).
+    """
+    payload = {
+        "definition_name": definition_name,
+        "file_path": file_path,
+        "overwrite": overwrite,
+    }
+    res = send_to_sketchup("save_component_to_skp", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_load_component_from_skp(
+    file_path: str,
+    definition_name: Optional[str] = None,
+) -> str:
+    """
+    Nạp một tệp mô hình SketchUp (.skp) từ thư viện bên ngoài vào danh sách ComponentDefinition của model.
+
+    Args:
+        file_path: Đường dẫn tuyệt đối tới tệp .skp cần nạp.
+        definition_name: Đặt lại tên cho ComponentDefinition sau khi nạp (tùy chọn).
+    """
+    payload: Dict[str, Any] = {"file_path": file_path}
+    if definition_name:
+        payload["definition_name"] = definition_name
+    res = send_to_sketchup("load_component_from_skp", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
 if __name__ == "__main__":
     mcp.run()
