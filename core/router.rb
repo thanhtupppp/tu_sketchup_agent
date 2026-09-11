@@ -34,6 +34,34 @@ module TuSketchupAgent
       args = payload["arguments"]
       args = {} unless args.is_a?(Hash)
 
+      # Optional optimistic-concurrency guard. Clients can pin a command to
+      # both the current model session and revision to avoid acting on stale state.
+      expected_revision = args["expected_model_revision"]
+      expected_session_id = args["expected_model_session_id"]
+      if !expected_revision.nil? || !expected_session_id.nil?
+        model = Sketchup.active_model
+        return Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở") unless model
+
+        current_state = ModelState.state(model)
+        revision_matches = expected_revision.nil? || ModelState.matches_revision?(expected_revision, model)
+        session_matches = expected_session_id.nil? || expected_session_id.to_s == current_state[:model_session_id].to_s
+
+        unless revision_matches && session_matches
+          return Response.error(
+            request_id,
+            command,
+            "STALE_MODEL_STATE",
+            "Model state đã thay đổi; hãy đọc lại get_model_state trước khi thực hiện lệnh",
+            "TuSketchupAgent::StaleModelStateError"
+          ).merge(
+            expected_model_revision: expected_revision,
+            actual_model_revision: current_state[:revision],
+            expected_model_session_id: expected_session_id,
+            actual_model_session_id: current_state[:model_session_id]
+          )
+        end
+      end
+
       handler = @handlers[command]
       result = if handler
         handler.call(args)
