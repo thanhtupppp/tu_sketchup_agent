@@ -11,6 +11,7 @@ module TuSketchupAgent
       def register
         Router.register("ping") { ping_response }
         Router.register("model_summary") { model_summary }
+        Router.register("get_model_state") { get_model_state }
         Router.register("get_selection") { get_selection }
         Router.register("zoom_extents") { zoom_extents }
         Router.register("capture_viewport") { |args| capture_viewport(args) }
@@ -29,20 +30,34 @@ module TuSketchupAgent
         }
       end
 
+      def get_model_state
+        model = Sketchup.active_model
+        raise "Không có model nào đang mở" unless model
+
+        {
+          ok: true,
+          service: "tu-sketchup-agent",
+          protocol_version: TuSketchupAgent::PROTOCOL_VERSION,
+          model_state: ModelState.state(model)
+        }
+      end
+
       def model_summary
         model = Sketchup.active_model
         raise "Không có model nào đang mở" unless model
 
         bbox = model.bounds
+        state = ModelState.state(model)
         {
           ok: true,
           service: "tu-sketchup-agent",
           protocol_version: TuSketchupAgent::PROTOCOL_VERSION,
           min_compatible_protocol_version: TuSketchupAgent::MIN_COMPATIBLE_PROTOCOL_VERSION,
           sketchup_version: Sketchup.version,
-          model_revision: Operation.model_revision,
-          mcp_revision: Operation.model_revision,
+          model_revision: state[:revision],
+          mcp_revision: state[:revision],
           model_revision_source: "tu-sketchup-agent",
+          model_state: state,
           capabilities: {
             find_entity_by_persistent_id: model.respond_to?(:find_entity_by_persistent_id),
             find_entity_by_id: model.respond_to?(:find_entity_by_id)
@@ -173,7 +188,7 @@ module TuSketchupAgent
         if auto_op && model
           Operation.with_operation(model, "AI Ruby Execution") do
             result = eval(code, TOPLEVEL_BINDING)
-            Operation.bump_model_revision
+            Operation.bump_model_revision(model)
           end
         else
           result = eval(code, TOPLEVEL_BINDING)
@@ -183,8 +198,9 @@ module TuSketchupAgent
           ok: true,
           result: result.inspect,
           class: result.class.name,
-          model_revision: Operation.model_revision,
-          mcp_revision: Operation.model_revision
+          model_revision: Operation.model_revision(model),
+          mcp_revision: Operation.model_revision(model),
+          model_state: ModelState.state(model)
         }
       rescue StandardError => error
         err = {
@@ -204,6 +220,10 @@ module TuSketchupAgent
   # Module-level delegates for backward compatibility
   def self.ping_response
     Handlers::System.ping_response
+  end
+
+  def self.get_model_state
+    Handlers::System.get_model_state
   end
 
   def self.model_summary

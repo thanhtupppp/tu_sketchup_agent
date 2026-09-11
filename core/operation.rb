@@ -4,14 +4,12 @@ module TuSketchupAgent
   module Operation
     extend self
 
-    @model_revision = 0
-
-    def model_revision
-      @model_revision ||= 0
+    def model_revision(model = nil)
+      ModelState.revision(model)
     end
 
-    def bump_model_revision
-      @model_revision = (@model_revision || 0) + 1
+    def bump_model_revision(model = nil)
+      ModelState.bump_revision(model)
     end
 
     def with_operation(model_or_name, name_or_transparent = nil, transparent = false)
@@ -25,6 +23,8 @@ module TuSketchupAgent
         trans = name_or_transparent || false
       end
       raise "No active model" unless model
+
+      ModelState.ensure_model!(model)
 
       started = false
       model.start_operation(op_name, true, false, trans)
@@ -40,12 +40,12 @@ module TuSketchupAgent
   end
 
   # Module-level delegates for backward compatibility
-  def self.model_revision
-    Operation.model_revision
+  def self.model_revision(model = nil)
+    Operation.model_revision(model)
   end
 
-  def self.bump_model_revision
-    Operation.bump_model_revision
+  def self.bump_model_revision(model = nil)
+    Operation.bump_model_revision(model)
   end
 
   def self.with_operation(model_or_name, name_or_transparent = nil, transparent = false, &block)

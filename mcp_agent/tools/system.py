@@ -18,8 +18,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def sketchup_get_model_info() -> str:
-        """Lấy thông tin tổng quan của mô hình SketchUp đang mở (kích thước, layers/tags, materials, scenes, số lượng entity)."""
+        """Lấy thông tin tổng quan của mô hình SketchUp đang mở (kích thước, layers/tags, materials, scenes, số lượng entity và model state)."""
         res = send_to_sketchup("model_summary")
+        return json.dumps(res, indent=2, ensure_ascii=False)
+
+    @mcp.tool()
+    def sketchup_get_model_state() -> str:
+        """Lấy identity runtime và revision hiện tại của model để agent biết trạng thái trước/sau mỗi chuỗi thao tác."""
+        res = send_to_sketchup("get_model_state")
         return json.dumps(res, indent=2, ensure_ascii=False)
 
     @mcp.tool()
