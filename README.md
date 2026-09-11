@@ -26,7 +26,7 @@ Hệ thống cầu nối AI (Antigravity IDE, Cursor, Claude Desktop) với **Tr
 tu_sketchup_agent/
 ├── main.rb                           # Extension Ruby chạy trong SketchUp (TCP Server + SketchUp API)
 ├── tu_sketchup_agent_loader.rb       # File đăng ký Extension chuẩn của SketchUp
-├── mcp_server.py                     # FastMCP Server (Python) điều phối 33 công cụ MCP
+├── mcp_server.py                     # FastMCP Server (Python) điều phối 41 công cụ MCP
 ├── test_client.py                    # Script kiểm tra socket cơ bản
 ├── tests/                            # Bộ kiểm thử tự động & hồi quy
 │   ├── models/
@@ -35,6 +35,7 @@ tu_sketchup_agent/
 │   ├── regression_suite_v1.py        # Bộ kiểm thử hồi quy 14 bài kiểm tra chuẩn Protocol v1.0
 │   ├── test_materials_attributes_v1_1.py # Bộ kiểm thử 14 bài chuyên sâu cho Materials & Attributes (v1.1)
 │   ├── test_components_assembly_v1_2.py  # Bộ kiểm thử 14 bài chuyên sâu cho Components & Assembly (v1.2)
+│   ├── test_layers_scenes_v1_3.py    # Bộ kiểm thử 14 bài chuyên sâu cho Layers & Scenes (v1.3)
 │   ├── test_all_27_tools.py          # Bộ kiểm thử unit/e2e xác nhận toàn diện 27 tool nền tảng
 │   └── README.md                     # Tài liệu đặc tả giao thức & quy chuẩn kiểm thử
 ├── docs/                             # Bản thiết kế kỹ thuật & tài liệu hướng dẫn
@@ -118,7 +119,7 @@ Copy file `tu_sketchup_agent_loader.rb` ra thư mục cha `Plugins` và đổi t
 
 ---
 
-## 4. Danh Sách 33 MCP Tools Khả Dụng
+## 4. Danh Sách 41 MCP Tools Khả Dụng
 
 ### 4.1. Hệ Thống & Trạng Thái Kết Nối (System & Connection)
 | Tool | Mô tả |
@@ -180,7 +181,19 @@ Copy file `tu_sketchup_agent_loader.rb` ra thư mục cha `Plugins` và đổi t
 | `sketchup_save_component_to_skp` | Xuất ComponentDefinition thành tệp `.skp` độc lập để lưu vào thư viện linh kiện dùng chung |
 | `sketchup_load_component_from_skp` | Nạp tệp `.skp` từ đĩa vào model dưới dạng ComponentDefinition sẵn sàng để lắp ráp |
 
-### 4.8. Thực Thi Mã Nhà Phát Triển (Developer Mode Execution)
+### 4.8. Quản Lý Layers/Tags & Scenes/Camera (Layers & Scenes — Protocol v1.3)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_get_layers` | Liệt kê danh sách Tag/Layer trong model (kèm trạng thái visible, page_hidden, màu sắc) |
+| `sketchup_create_layer` | Tạo Tag/Layer mới với tên và màu sắc tùy chọn |
+| `sketchup_set_entity_layer` | Gán Tag/Layer cho Group/ComponentInstance. **Chặn gán trực tiếp lên Face/Edge** để bảo toàn Layer0 |
+| `sketchup_set_layer_visibility` | Đặt trạng thái ẩn/hiện (`visible = true/false`) cho Tag/Layer |
+| `sketchup_get_scenes` | Liệt kê danh sách Scenes (Pages) trong model (kèm thông tin camera, cờ lưu trữ thuộc tính) |
+| `sketchup_create_scene` | Tạo Scene mới với góc nhìn camera, danh sách layer bị ẩn (`hidden_layer_names`), cờ lưu trữ |
+| `sketchup_activate_scene` | Kích hoạt chuyển đổi sang Scene chỉ định theo tên hoặc page_id |
+| `sketchup_set_camera_view` | Điều khiển camera theo các góc chuẩn 2D Orthographic (`"top"`, `"front"`, `"right"`, `"left"`, `"back"`, `"iso"`) hoặc 3D Perspective tùy chọn, hỗ trợ zoom_extents |
+
+### 4.9. Thực Thi Mã Nhà Phát Triển (Developer Mode Execution)
 | Tool | Mô tả |
 |---|---|
 | `sketchup_execute_ruby` | Thực thi đoạn mã Ruby tùy ý trực tiếp trong SketchUp 2026 |
@@ -210,11 +223,11 @@ Mọi thao tác thay đổi hình khối đều được bọc trong một trans
 
 ## 6. Giao Thức & Khả Năng Tương Thích Ngược (Cách B)
 
-Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **Protocol v1.2**, **v1.1** và **v1.0**:
+Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **Protocol v1.3**, **v1.2**, **v1.1** và **v1.0**:
 
-* **Ruby Bridge**: Trả về `protocol_version: "1.2"` kèm `min_compatible_protocol_version: "1.0"` trên tất cả các endpoint.
-* **Python FastMCP**: Hỗ trợ tập phiên bản `SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1", "1.2"}`.
-* Các client v1.0 và v1.1 tuân thủ kiểm tra tương thích đều có thể tiếp tục sử dụng các công cụ nền tảng mà không bị phá vỡ giao tiếp.
+* **Ruby Bridge**: Trả về `protocol_version: "1.3"` kèm `min_compatible_protocol_version: "1.0"` trên tất cả các endpoint.
+* **Python FastMCP**: Hỗ trợ tập phiên bản `SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1", "1.2", "1.3"}`.
+* Các client v1.0, v1.1 và v1.2 tuân thủ kiểm tra tương thích đều có thể tiếp tục sử dụng các công cụ nền tảng mà không bị phá vỡ giao tiếp.
 
 ---
 
@@ -230,30 +243,36 @@ Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **
 
 1. **Biên dịch & kiểm tra cú pháp**:
    ```powershell
-   python -m py_compile mcp_server.py tests/test_components_assembly_v1_2.py tests/test_materials_attributes_v1_1.py tests/regression_suite_v1.py
+   python -m py_compile mcp_server.py tests/test_layers_scenes_v1_3.py tests/test_components_assembly_v1_2.py tests/test_materials_attributes_v1_1.py tests/regression_suite_v1.py
    python scratch/check_ruby_blocks.py
    git diff --check
    ```
 
-2. **Chạy kiểm thử Component & Lắp Ráp (Assembly Management v1.2)**:
+2. **Chạy kiểm thử Layers & Scenes (Tag/Layer & Camera v1.3)**:
+   ```powershell
+   python -X utf8 tests/test_layers_scenes_v1_3.py
+   ```
+   *(Kỳ vọng: 14/14 PASS 100%)*
+
+3. **Chạy kiểm thử Component & Lắp Ráp (Assembly Management v1.2)**:
    ```powershell
    python -X utf8 tests/test_components_assembly_v1_2.py
    ```
    *(Kỳ vọng: 14/14 PASS 100%)*
 
-3. **Chạy kiểm thử tính năng vật liệu & thuộc tính (Materials & Attributes v1.1)**:
+4. **Chạy kiểm thử tính năng vật liệu & thuộc tính (Materials & Attributes v1.1)**:
    ```powershell
    python -X utf8 tests/test_materials_attributes_v1_1.py
    ```
    *(Kỳ vọng: 14/14 PASS 100%)*
 
-4. **Chạy kiểm thử hồi quy nền tảng (Regression v1.0)**:
+5. **Chạy kiểm thử hồi quy nền tảng (Regression v1.0)**:
    ```powershell
    python -X utf8 tests/regression_suite_v1.py
    ```
    *(Kỳ vọng: 14/14 PASS 100%)*
 
-5. **Chạy kiểm thử toàn diện 27 MCP tools**:
+6. **Chạy kiểm thử toàn diện 27 MCP tools**:
    ```powershell
    python -X utf8 tests/test_all_27_tools.py
    ```
@@ -266,6 +285,7 @@ Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **
 * **Nhánh cơ sở ổn định (Baseline)**: `master` (gắn tag `v1.0.0`).
 * **Nhánh tính năng v1.1**: `feature/v1.1-materials-attributes` (gắn tag `v1.1.0`).
 * **Nhánh tính năng v1.2**: `feature/v1.2-components-assembly` (gắn tag `v1.2.0`).
+* **Nhánh tính năng v1.3**: `feature/v1.3-layers-scenes` (gắn tag `v1.3.0`).
 * **Quy chuẩn phát hành**:
-  - Không sửa đổi hoặc ghi đè tag `v1.0.0` hoặc `v1.1.0`.
+  - Không sửa đổi hoặc ghi đè tag `v1.0.0`, `v1.1.0` hoặc `v1.2.0`.
   - Mọi tính năng mới được hoàn thiện, xác nhận 100% test pass trên branch riêng, sau đó tạo **Pull Request** về nhánh phát hành chính.

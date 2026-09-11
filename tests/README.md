@@ -33,6 +33,7 @@ tests/
 ├── regression_suite_v1.py         # Bộ kiểm thử hồi quy 14 bài kiểm tra chuẩn v1.0
 ├── test_materials_attributes_v1_1.py # Bộ kiểm thử 14 bài chuyên sâu Materials & Attributes (v1.1)
 ├── test_components_assembly_v1_2.py  # Bộ kiểm thử 14 bài chuyên sâu Components & Assembly (v1.2)
+├── test_layers_scenes_v1_3.py     # Bộ kiểm thử 14 bài chuyên sâu Layers & Scenes (v1.3)
 ├── test_all_27_tools.py           # Bộ kiểm thử toàn diện 27 tool nền tảng
 └── README.md                      # Tài liệu chuẩn hóa giao thức & vận hành
 ```
@@ -91,3 +92,41 @@ Mỗi file log ghi lại:
 12. **TEST 12**: Xóa dọn dẹp đối tượng (`delete` với `persistent_ids`)
 13. **TEST 13**: Chụp ảnh Viewport chuẩn hóa (`capture_viewport`)
 14. **TEST 14**: Cổng bảo mật TCP (chặn `reload_extension` qua mạng với mã `FORBIDDEN`)
+
+---
+
+## 6. Danh Sách 14 Bài Test Chuẩn Trong `test_components_assembly_v1_2.py`
+
+1. **TEST 01**: Handshake & kiểm tra Protocol Version tương thích
+2. **TEST 02**: Tạo đối tượng phôi chuẩn bị đóng gói component (`create_box`)
+3. **TEST 03**: Tạo ComponentDefinition & Instance (`create_component`)
+4. **TEST 04**: Tra cứu và lọc danh sách Component Definitions (`get_component_definitions`)
+5. **TEST 05**: Chèn ComponentInstance theo tọa độ trực quan và góc xoay (`place_component_instance`)
+6. **TEST 06**: Chèn ComponentInstance theo ma trận raw 4x4 OpenGL column-major
+7. **TEST 07**: Chèn ComponentInstance lồng vào Sub-assembly qua `parent_id`
+8. **TEST 08**: Tách nhánh definition độc lập cho instance (`make_component_unique`)
+9. **TEST 09**: Xác nhận tính độc lập tuyệt đối giữa 2 definitions sau Make Unique
+10. **TEST 10**: Xuất ComponentDefinition ra tệp `.skp` lưu trữ đĩa cứng (`save_component_to_skp`)
+11. **TEST 11**: Nạp tệp `.skp` từ đĩa vào model dưới dạng definition mới (`load_component_from_skp`)
+12. **TEST 12**: Chèn instance từ Component vừa nạp vào không gian mô hình
+13. **TEST 13**: Xử lý ngoại lệ an toàn (definition không tồn tại, đường dẫn sai, sai đuôi file)
+14. **TEST 14**: Dọn dẹp đối tượng thử nghiệm và file tạm trên đĩa cứng
+
+---
+
+## 7. Danh Sách 14 Bài Test Chuẩn Trong `test_layers_scenes_v1_3.py`
+
+1. **TEST 01**: Handshake & kiểm tra Protocol Version tương thích `1.3`
+2. **TEST 02**: Tạo mới các Layers/Tags (`create_layer`) kèm kiểm tra thuộc tính và mã màu hex
+3. **TEST 03**: Lọc và liệt kê danh sách Layers (`get_layers`)
+4. **TEST 04**: Dựng các khối hình học thử nghiệm (`create_box`)
+5. **TEST 05**: Gán Layer cho các Group (`set_entity_layer`)
+6. **TEST 06**: Type Safety Check: Chặn đúng việc gán layer lên Face/Edge để bảo toàn Layer0
+7. **TEST 07**: Thay đổi trạng thái ẩn/hiện của Layer (`set_layer_visibility`)
+8. **TEST 08**: Đặt camera theo góc chiếu chuẩn 2D Orthographic (`set_camera_view` preset Top)
+9. **TEST 09**: Tạo Scene 2D chuẩn kèm góc camera và cờ thuộc tính (`create_scene`)
+10. **TEST 10**: Tạo Scene 3D Isometric kèm cấu hình ẩn Tag (`create_scene` hidden_layer_names)
+11. **TEST 11**: Liệt kê danh sách Scenes trong mô hình (`get_scenes`)
+12. **TEST 12**: Chuyển đổi và kích hoạt qua lại giữa các Scenes (`activate_scene`)
+13. **TEST 13**: Xử lý ngoại lệ an toàn (Scene không tồn tại, tên layer rỗng)
+14. **TEST 14**: Dọn dẹp đối tượng thử nghiệm và phục hồi trạng thái visibility của layers
