@@ -113,6 +113,55 @@ module TuSketchupAgent
     end
   end
 
+  def build_transformation(args)
+    # 1. Chế độ Raw Matrix 4x4 (16 số thực)
+    if args["matrix"].is_a?(Array) && args["matrix"].length == 16
+      raw_vals = args["matrix"].map { |v| Float(v) }
+      return Geom::Transformation.new(raw_vals)
+    end
+
+    # 2. Chế độ tham số trực quan: Scale * Rotation * Translation
+    # Scale
+    t_scale = if args["scale"].is_a?(Array) && args["scale"].length == 3
+      Geom::Transformation.scaling(Float(args["scale"][0]), Float(args["scale"][1]), Float(args["scale"][2]))
+    elsif args["scale"] && Float(args["scale"]) != 1.0
+      s = Float(args["scale"])
+      Geom::Transformation.scaling(s, s, s)
+    else
+      Geom::Transformation.new
+    end
+
+    # Rotation
+    t_rot = Geom::Transformation.new
+    if args["rotation"].is_a?(Hash)
+      axis_str = (args["rotation"]["axis"] || "z").to_s.downcase
+      axis_vec = case axis_str
+      when "x" then Geom::Vector3d.new(1, 0, 0)
+      when "y" then Geom::Vector3d.new(0, 1, 0)
+      else Geom::Vector3d.new(0, 0, 1)
+      end
+      angle_deg = Float(args["rotation"]["angle"] || 0.0)
+      t_rot = Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), axis_vec, angle_deg.degrees) if angle_deg != 0.0
+    elsif args["rotation"].is_a?(Array) && args["rotation"].length == 3
+      rx, ry, rz = args["rotation"].map { |v| Float(v) }
+      tr_x = rx != 0 ? Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), Geom::Vector3d.new(1, 0, 0), rx.degrees) : Geom::Transformation.new
+      tr_y = ry != 0 ? Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), Geom::Vector3d.new(0, 1, 0), ry.degrees) : Geom::Transformation.new
+      tr_z = rz != 0 ? Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), Geom::Vector3d.new(0, 0, 1), rz.degrees) : Geom::Transformation.new
+      t_rot = tr_z * tr_y * tr_x
+    end
+
+    # Translation (Position in mm)
+    t_pos = Geom::Transformation.new
+    if args["position"].is_a?(Array) && args["position"].length >= 3
+      px = Float(args["position"][0]).mm
+      py = Float(args["position"][1]).mm
+      pz = Float(args["position"][2]).mm
+      t_pos = Geom::Transformation.translation(Geom::Point3d.new(px, py, pz))
+    end
+
+    t_pos * t_rot * t_scale
+  end
+
   def material_metadata(mat)
     return nil unless mat && mat.valid?
     c = mat.color
