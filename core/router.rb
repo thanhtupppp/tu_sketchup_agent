@@ -38,13 +38,16 @@ module TuSketchupAgent
       # both the current model session and revision to avoid acting on stale state.
       expected_revision = args["expected_model_revision"]
       expected_session_id = args["expected_model_session_id"]
-      if !expected_revision.nil? || !expected_session_id.nil?
+      guarded = !expected_revision.nil? || !expected_session_id.nil?
+      before_state = nil
+
+      if guarded
         model = Sketchup.active_model
         return Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở") unless model
 
-        current_state = ModelState.state(model)
+        before_state = ModelState.state(model)
         revision_matches = expected_revision.nil? || ModelState.matches_revision?(expected_revision, model)
-        session_matches = expected_session_id.nil? || expected_session_id.to_s == current_state[:model_session_id].to_s
+        session_matches = expected_session_id.nil? || expected_session_id.to_s == before_state[:model_session_id].to_s
 
         unless revision_matches && session_matches
           return Response.error(
@@ -55,9 +58,9 @@ module TuSketchupAgent
             "TuSketchupAgent::StaleModelStateError"
           ).merge(
             expected_model_revision: expected_revision,
-            actual_model_revision: current_state[:revision],
+            actual_model_revision: before_state[:revision],
             expected_model_session_id: expected_session_id,
-            actual_model_session_id: current_state[:model_session_id]
+            actual_model_session_id: before_state[:model_session_id]
           )
         end
       end
@@ -91,6 +94,39 @@ module TuSketchupAgent
           class: result[:error_class]
         }
         result.delete(:error_class)
+      end
+
+      # Phase 2C: verify the transaction outcome and model-state transition
+      # after a guarded mutation. A successful guarded command must commit and
+      # advance the revision exactly once. This catches handlers that report
+      # success without producing the expected state transition.
+      if guarded && result[:ok] == true && before_state
+        model = Sketchup.active_model
+        after_state = ModelState.state(model)
+        transaction = Operation.last_transaction
+        revision_delta = after_state[:revision].to_i - before_state[:revision].to_i
+        verified = transaction[:status].to_s == "committed" && revision_delta == 1
+
+        result[:transaction] = transaction
+        result[:model_state_transition] = {
+          before_revision: before_state[:revision],
+          after_revision: after_state[:revision],
+          revision_delta: revision_delta,
+          verified: verified
+        }
+
+        unless verified
+          return Response.error(
+            request_id,
+            command,
+            "TRANSACTION_VERIFICATION_FAILED",
+            "Lệnh báo thành công nhưng transaction/model revision không đạt postcondition mong đợi",
+            "TuSketchupAgent::TransactionVerificationError"
+          ).merge(
+            transaction: transaction,
+            model_state_transition: result[:model_state_transition]
+          )
+        end
       end
 
       result.merge(
