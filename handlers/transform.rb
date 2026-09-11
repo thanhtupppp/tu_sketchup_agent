@@ -28,6 +28,7 @@ module TuSketchupAgent
 
         entities, missing_ids = Services::EntityService.resolve_entities_from_args(model, args)
         raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để di chuyển" if entities.empty?
+        before_bounds = Services::TransformationService.calculate_bounds_mm(entities)
 
         t = Geom::Transformation.translation(vec)
 
@@ -50,6 +51,7 @@ module TuSketchupAgent
           moved_count: entities.length,
           missing_ids: missing_ids,
           vector_mm: [dx, dy, dz],
+          before_bounds_mm: before_bounds,
           entities: entities.map { |e| Services::MetadataService.entity_metadata(e) },
           bounds_mm: Services::TransformationService.calculate_bounds_mm(entities),
           model_revision: Operation.model_revision,
@@ -70,6 +72,7 @@ module TuSketchupAgent
 
         entities, missing_ids = Services::EntityService.resolve_entities_from_args(model, args)
         raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để sao chép" if entities.empty?
+        before_bounds = Services::TransformationService.calculate_bounds_mm(entities)
 
         new_entities = []
 
@@ -100,6 +103,7 @@ module TuSketchupAgent
           copied_count: new_entities.length,
           missing_ids: missing_ids,
           vector_mm: [dx, dy, dz],
+          before_bounds_mm: before_bounds,
           entities: new_entities.map { |e| Services::MetadataService.entity_metadata(e) },
           bounds_mm: Services::TransformationService.calculate_bounds_mm(new_entities),
           model_revision: Operation.model_revision,
@@ -131,6 +135,7 @@ module TuSketchupAgent
 
         entities, missing_ids = Services::EntityService.resolve_entities_from_args(model, args)
         raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để xoay" if entities.empty?
+        before_bounds = Services::TransformationService.calculate_bounds_mm(entities)
 
         combined_bb = Geom::BoundingBox.new
         entities.each { |e| combined_bb.add(e.bounds) if e.respond_to?(:bounds) }
@@ -164,6 +169,7 @@ module TuSketchupAgent
           axis: axis_arg,
           angle_degrees: angle_deg,
           origin_mm: [origin_pt.x.to_mm.round(1), origin_pt.y.to_mm.round(1), origin_pt.z.to_mm.round(1)],
+          before_bounds_mm: before_bounds,
           entities: entities.map { |e| Services::MetadataService.entity_metadata(e) },
           bounds_mm: Services::TransformationService.calculate_bounds_mm(entities),
           model_revision: Operation.model_revision,
@@ -183,6 +189,7 @@ module TuSketchupAgent
 
         entities, missing_ids = Services::EntityService.resolve_entities_from_args(model, args)
         raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để scale" if entities.empty?
+        before_bounds = Services::TransformationService.calculate_bounds_mm(entities)
 
         combined_bb = Geom::BoundingBox.new
         entities.each { |e| combined_bb.add(e.bounds) if e.respond_to?(:bounds) }
@@ -215,6 +222,7 @@ module TuSketchupAgent
           missing_ids: missing_ids,
           scale: [x_scale, y_scale, z_scale],
           origin_mm: [origin_pt.x.to_mm.round(1), origin_pt.y.to_mm.round(1), origin_pt.z.to_mm.round(1)],
+          before_bounds_mm: before_bounds,
           entities: entities.map { |e| Services::MetadataService.entity_metadata(e) },
           bounds_mm: Services::TransformationService.calculate_bounds_mm(entities),
           model_revision: Operation.model_revision,
@@ -260,14 +268,12 @@ module TuSketchupAgent
         entities, missing_ids = Services::EntityService.resolve_entities_from_args(model, args)
         raise ArgumentError, "Cần ít nhất một đối tượng hợp lệ để tạo nhóm" if entities.empty?
 
-        # Verify all entities share the same parent container
         parents = entities.map { |e| e.respond_to?(:parent) ? e.parent : nil }.uniq
         if parents.length > 1
           parent_names = parents.map { |p| p.is_a?(Sketchup::Model) ? "Model root" : (p.respond_to?(:name) ? p.name : p.class.name) }
           raise ArgumentError, "Tất cả đối tượng phải cùng chung một container mới nhóm được. Hiện có #{parents.length} containers khác nhau: #{parent_names.join(', ')}"
         end
 
-        # Use the parent's entities collection, not necessarily model.active_entities
         target_entities_collection = if parents.first.is_a?(Sketchup::Model)
           parents.first.active_entities
         elsif parents.first.respond_to?(:entities)
@@ -328,7 +334,6 @@ module TuSketchupAgent
     end
   end
 
-  # Module-level delegates for backward compatibility
   def self.move_entities(args)
     Handlers::Transform.move_entities(args)
   end
