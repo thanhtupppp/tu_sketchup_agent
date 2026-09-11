@@ -96,36 +96,26 @@ module TuSketchupAgent
         result.delete(:error_class)
       end
 
-      # Phase 2C: verify the transaction outcome and model-state transition
-      # after a guarded mutation. A successful guarded command must commit and
-      # advance the revision exactly once. This catches handlers that report
-      # success without producing the expected state transition.
-      if guarded && result[:ok] == true && before_state
+      if guarded && before_state
         model = Sketchup.active_model
         after_state = ModelState.state(model)
-        transaction = Operation.last_transaction
-        revision_delta = after_state[:revision].to_i - before_state[:revision].to_i
-        verified = transaction[:status].to_s == "committed" && revision_delta == 1
+        verification = Verification.contract(
+          command: command,
+          before_state: before_state,
+          after_state: after_state,
+          transaction: Operation.last_transaction,
+          handler_ok: result[:ok] == true
+        )
+        result[:verification] = verification
 
-        result[:transaction] = transaction
-        result[:model_state_transition] = {
-          before_revision: before_state[:revision],
-          after_revision: after_state[:revision],
-          revision_delta: revision_delta,
-          verified: verified
-        }
-
-        unless verified
+        if result[:ok] == true && !verification[:verified]
           return Response.error(
             request_id,
             command,
             "TRANSACTION_VERIFICATION_FAILED",
             "Lệnh báo thành công nhưng transaction/model revision không đạt postcondition mong đợi",
             "TuSketchupAgent::TransactionVerificationError"
-          ).merge(
-            transaction: transaction,
-            model_state_transition: result[:model_state_transition]
-          )
+          ).merge(verification: verification)
         end
       end
 
