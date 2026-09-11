@@ -7,4 +7,5 @@ module TuSketchupAgent
   class DevModeRequiredError < Error; end
   class EntityNotFoundError < Error; end
   class ValidationError < Error; end
+  class StaleModelStateError < Error; end
 end
