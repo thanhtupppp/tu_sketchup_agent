@@ -20,18 +20,23 @@ from mcp.server.fastmcp import FastMCP, Image
 HOST = "127.0.0.1"
 PORT = 9876
 TOKEN = "tu-local-secret"
-PROTOCOL_VERSION = "1.0"
+PROTOCOL_VERSION = "1.1"
+SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1"}
 
 mcp = FastMCP("sketchup-agent")
 
 
-def require_protocol_version(res: dict, expected: str = PROTOCOL_VERSION) -> None:
+def require_protocol_version(res: dict, supported: Optional[set[str]] = None) -> None:
     """Xác nhận tính tương thích phiên bản giao thức giữa MCP Server và Ruby Bridge."""
+    if supported is None:
+        supported = SUPPORTED_PROTOCOL_VERSIONS
     actual = res.get("protocol_version")
-    if actual and actual != expected:
-        raise RuntimeError(
-            f"Không tương thích protocol: cần phiên bản {expected}, nhưng nhận được {actual}"
-        )
+    min_compat = res.get("min_compatible_protocol_version")
+    if actual and actual not in supported:
+        if min_compat is None or min_compat not in supported:
+            raise RuntimeError(
+                f"Không tương thích protocol: hỗ trợ {supported}, nhưng nhận được {actual} (min_compat: {min_compat})"
+            )
 
 
 def send_to_sketchup(command: str, arguments: Optional[Dict[str, Any]] = None, timeout: float = 15.0) -> dict:
@@ -72,7 +77,10 @@ def send_to_sketchup(command: str, arguments: Optional[Dict[str, Any]] = None, t
                     raise ConnectionError("Kết nối bị đóng khi nhận body dữ liệu từ SketchUp.")
                 data.extend(chunk)
 
-            return json.loads(data.decode("utf-8"))
+            res = json.loads(data.decode("utf-8"))
+            if isinstance(res, dict):
+                require_protocol_version(res)
+            return res
     except ConnectionRefusedError:
         return {
             "ok": False,
@@ -591,6 +599,200 @@ def sketchup_ungroup(
     else:
         raise ValueError("Phải cung cấp persistent_id hoặc entity_id của Group cần rã")
     res = send_to_sketchup("ungroup", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_get_materials(
+    name_filter: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> str:
+    """
+    Liệt kê danh sách các vật liệu (Materials) hiện có trong mô hình SketchUp.
+
+    Args:
+        name_filter: Lọc theo tên vật liệu (không phân biệt hoa thường).
+        limit: Số lượng vật liệu tối đa trả về (mặc định 100).
+        offset: Vị trí bắt đầu lấy (mặc định 0).
+    """
+    payload: Dict[str, Any] = {"limit": limit, "offset": offset}
+    if name_filter:
+        payload["name_filter"] = name_filter
+    res = send_to_sketchup("get_materials", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_get_material_info(material_name: str) -> str:
+    """
+    Lấy thông số chi tiết của một vật liệu trong SketchUp (màu RGB/Hex, alpha, texture).
+
+    Args:
+        material_name: Tên của vật liệu cần tra cứu.
+    """
+    res = send_to_sketchup("get_material_info", {"material_name": material_name})
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_create_material(
+    name: str,
+    color: Optional[Union[str, list[int]]] = None,
+    alpha: float = 1.0,
+    texture_path: Optional[str] = None,
+    texture_width_mm: Optional[float] = None,
+    texture_height_mm: Optional[float] = None,
+) -> str:
+    """
+    Tạo mới hoặc cập nhật vật liệu (Material) trong SketchUp.
+
+    Args:
+        name: Tên định danh của vật liệu.
+        color: Mã màu (dạng Hex "#RRGGBB", tên tiếng Anh "red", hoặc mảng [R, G, B] / [R, G, B, A] từ 0-255).
+        alpha: Độ đậm/trong suốt từ 0.0 (hoàn toàn trong suốt) đến 1.0 (đục).
+        texture_path: Đường dẫn tuyệt đối tới file ảnh texture (tùy chọn).
+        texture_width_mm: Chiều rộng hoa văn texture tính bằng mm (tùy chọn).
+        texture_height_mm: Chiều cao hoa văn texture tính bằng mm (tùy chọn).
+    """
+    payload: Dict[str, Any] = {"name": name, "alpha": alpha}
+    if color is not None:
+        payload["color"] = color
+    if texture_path is not None:
+        payload["texture_path"] = texture_path
+    if texture_width_mm is not None:
+        payload["texture_width"] = texture_width_mm
+    if texture_height_mm is not None:
+        payload["texture_height"] = texture_height_mm
+
+    res = send_to_sketchup("create_material", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_set_entity_material(
+    material_name: str,
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
+) -> str:
+    """
+    Gán vật liệu cho một hoặc nhiều Group hoặc ComponentInstance trong SketchUp.
+    Lưu ý an toàn: Chỉ hỗ trợ Sketchup::Group hoặc Sketchup::ComponentInstance (không gán trực tiếp lên Face/Edge).
+
+    Args:
+        material_name: Tên vật liệu cần gán (phải tồn tại trong model).
+        persistent_ids: Danh sách Persistent ID của các đối tượng (khuyên dùng).
+        entity_ids: Danh sách Entity ID (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
+    """
+    payload = _build_ids_payload(persistent_ids, entity_ids, ids)
+    payload["material_name"] = material_name
+    res = send_to_sketchup("set_entity_material", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_clear_entity_material(
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
+) -> str:
+    """
+    Xóa lớp vật liệu gán đè trên Group hoặc ComponentInstance, trả về vật liệu mặc định.
+
+    Args:
+        persistent_ids: Danh sách Persistent ID của các đối tượng cần xóa vật liệu (khuyên dùng).
+        entity_ids: Danh sách Entity ID (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
+    """
+    payload = _build_ids_payload(persistent_ids, entity_ids, ids)
+    res = send_to_sketchup("clear_entity_material", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_get_entity_attributes(
+    persistent_id: Optional[Union[int, str]] = None,
+    entity_id: Optional[int] = None,
+    id: Optional[Union[int, str]] = None,
+    dictionary_name: Optional[str] = None,
+) -> str:
+    """
+    Đọc các từ điển thuộc tính (Attribute Dictionaries / metadata / BIM) của một đối tượng trong SketchUp.
+
+    Args:
+        persistent_id: Persistent ID của đối tượng cần đọc thuộc tính (khuyên dùng).
+        entity_id: Entity ID của đối tượng (tùy chọn).
+        id: (Legacy - chỉ để tương thích ngược).
+        dictionary_name: Tên dictionary cụ thể cần đọc. Nếu bỏ trống, trả về tất cả dictionaries của đối tượng.
+    """
+    payload: Dict[str, Any] = {}
+    if persistent_id is not None:
+        payload["persistent_id"] = persistent_id
+    elif entity_id is not None:
+        payload["entity_id"] = entity_id
+    elif id is not None:
+        payload["persistent_id"] = id
+    else:
+        raise ValueError("Phải cung cấp persistent_id hoặc entity_id của đối tượng")
+
+    if dictionary_name:
+        payload["dictionary_name"] = dictionary_name
+
+    res = send_to_sketchup("get_entity_attributes", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_set_entity_attributes(
+    dictionary_name: str,
+    attributes: Dict[str, Any],
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
+) -> str:
+    """
+    Ghi các cặp thuộc tính (key-value / metadata / BIM) vào Attribute Dictionary của Group hoặc ComponentInstance.
+    Lưu ý an toàn: Chỉ hỗ trợ Sketchup::Group hoặc Sketchup::ComponentInstance.
+
+    Args:
+        dictionary_name: Tên của từ điển thuộc tính (ví dụ: "bim_data", "specs", "pricing").
+        attributes: Dictionary chứa các cặp key/value cần lưu trữ (ví dụ: {"part_no": "P-01", "cost": 150.0}).
+        persistent_ids: Danh sách Persistent ID của các đối tượng (khuyên dùng).
+        entity_ids: Danh sách Entity ID (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
+    """
+    payload = _build_ids_payload(persistent_ids, entity_ids, ids)
+    payload["dictionary_name"] = dictionary_name
+    payload["attributes"] = attributes
+    res = send_to_sketchup("set_entity_attributes", payload)
+    return json.dumps(res, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def sketchup_delete_entity_attributes(
+    dictionary_name: str,
+    keys: Optional[list[str]] = None,
+    persistent_ids: Optional[list[Union[int, str]]] = None,
+    entity_ids: Optional[list[Union[int, str]]] = None,
+    ids: Optional[list[Union[int, str]]] = None,
+) -> str:
+    """
+    Xóa thuộc tính trong Attribute Dictionary của Group hoặc ComponentInstance.
+
+    Args:
+        dictionary_name: Tên của từ điển thuộc tính.
+        keys: Danh sách các key cụ thể cần xóa. Nếu bỏ trống, toàn bộ dictionary này sẽ bị xóa khỏi đối tượng.
+        persistent_ids: Danh sách Persistent ID của các đối tượng (khuyên dùng).
+        entity_ids: Danh sách Entity ID (tùy chọn).
+        ids: (Legacy - chỉ để tương thích ngược).
+    """
+    payload = _build_ids_payload(persistent_ids, entity_ids, ids)
+    payload["dictionary_name"] = dictionary_name
+    if keys is not None:
+        payload["keys"] = keys
+    res = send_to_sketchup("delete_entity_attributes", payload)
     return json.dumps(res, indent=2, ensure_ascii=False)
 
 

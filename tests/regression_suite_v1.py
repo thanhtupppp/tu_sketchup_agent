@@ -20,7 +20,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 HOST = "127.0.0.1"
 PORT = 9876
 TOKEN = "tu-local-secret"
-EXPECTED_PROTOCOL = "1.0"
+EXPECTED_PROTOCOLS = ["1.0", "1.1"]
 
 
 def git_revision() -> str:
@@ -69,10 +69,10 @@ def run_suite():
     assert ping.get("ok") is True, f"Ping thất bại: {ping}"
     protocol = ping.get("protocol_version")
     if protocol is None:
-        print(f"[TEST 01] Protocol Version: [Đang chạy bản cache cũ] -> Vui lòng chọn menu 'Extensions -> Tu SketchUp Agent -> Reload Extension' trong SketchUp để nạp phiên bản Protocol 1.0!")
+        print(f"[TEST 01] Protocol Version: [Đang chạy bản cache cũ] -> Vui lòng chọn menu 'Extensions -> Tu SketchUp Agent -> Reload Extension' trong SketchUp để nạp phiên bản Protocol mới!")
     else:
-        assert protocol == EXPECTED_PROTOCOL, f"Sai protocol: {protocol} != {EXPECTED_PROTOCOL}"
-        print(f"[TEST 01] Protocol Version: {protocol} (kỳ vọng: {EXPECTED_PROTOCOL}) -> PASS")
+        assert protocol in EXPECTED_PROTOCOLS, f"Sai protocol: {protocol} not in {EXPECTED_PROTOCOLS}"
+        print(f"[TEST 01] Protocol Version: {protocol} (kỳ vọng: {EXPECTED_PROTOCOLS}) -> PASS")
 
     # 2. Model Summary & Capabilities Check
     summary = send("model_summary")

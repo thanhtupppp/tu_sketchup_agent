@@ -11,7 +11,8 @@ module TuSketchupAgent
   PORT = 9876 unless const_defined?(:PORT)
   TOKEN = "tu-local-secret" unless const_defined?(:TOKEN)
   MAX_DIMENSION_MM = 1_000_000 unless const_defined?(:MAX_DIMENSION_MM)
-  PROTOCOL_VERSION = "1.0" unless const_defined?(:PROTOCOL_VERSION)
+  PROTOCOL_VERSION = "1.1"
+  MIN_COMPATIBLE_PROTOCOL_VERSION = "1.0"
 
   @server ||= nil
   @timer_id ||= nil
@@ -105,6 +106,32 @@ module TuSketchupAgent
     end
   end
 
+  def validate_group_or_component!(entity)
+    unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+      eid = entity.respond_to?(:persistent_id) ? entity.persistent_id : (entity.respond_to?(:entityID) ? entity.entityID : "unknown")
+      raise ArgumentError, "Đối tượng ID #{eid} có kiểu #{entity.class.name} không được hỗ trợ. Chỉ hỗ trợ thao tác trên Sketchup::Group hoặc Sketchup::ComponentInstance."
+    end
+  end
+
+  def material_metadata(mat)
+    return nil unless mat && mat.valid?
+    c = mat.color
+    tex = mat.texture
+    {
+      name: mat.name,
+      display_name: mat.display_name,
+      color_rgb: [c.red, c.green, c.blue, c.alpha],
+      color_hex: sprintf("#%02X%02X%02X", c.red, c.green, c.blue),
+      alpha: mat.alpha.round(3),
+      has_texture: !tex.nil?,
+      texture: tex ? {
+        filename: tex.filename,
+        width_mm: tex.width.to_mm.round(1),
+        height_mm: tex.height.to_mm.round(1)
+      } : nil
+    }
+  end
+
   def entity_metadata(entity)
     return nil unless entity
     pid = entity.respond_to?(:persistent_id) ? entity.persistent_id : nil
@@ -190,6 +217,7 @@ module TuSketchupAgent
       ok: true,
       service: "tu-sketchup-agent",
       protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION,
       sketchup_version: Sketchup.version,
       server: "#{HOST}:#{PORT}",
       dev_mode: dev_mode?
@@ -213,6 +241,7 @@ module TuSketchupAgent
       ok: true,
       service: "tu-sketchup-agent",
       protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION,
       sketchup_version: Sketchup.version,
       model_revision: model_revision,
       mcp_revision: model_revision,
@@ -512,6 +541,98 @@ module TuSketchupAgent
         min: [combined_bb.min.x.to_mm.round(1), combined_bb.min.y.to_mm.round(1), combined_bb.min.z.to_mm.round(1)],
         max: [combined_bb.max.x.to_mm.round(1), combined_bb.max.y.to_mm.round(1), combined_bb.max.z.to_mm.round(1)]
       }
+    }
+  end
+
+  def get_materials(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    limit = (args["limit"] || 100).to_i.clamp(1, 1000)
+    offset = (args["offset"] || 0).to_i
+    offset = 0 if offset < 0
+    name_filter = args["name_filter"].to_s.strip.downcase
+
+    all_mats = model.materials.to_a
+    if !name_filter.empty?
+      all_mats.select! { |m| m.name.downcase.include?(name_filter) }
+    end
+
+    total_count = all_mats.length
+    sliced = all_mats.slice(offset, limit) || []
+    items = sliced.map { |m| material_metadata(m) }
+
+    {
+      ok: true,
+      total_count: total_count,
+      returned_count: items.length,
+      offset: offset,
+      limit: limit,
+      materials: items,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  def get_material_info(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    name = (args["name"] || args["material_name"]).to_s.strip
+    raise ArgumentError, "Thiếu tham số tên vật liệu (name hoặc material_name)" if name.empty?
+
+    mat = model.materials[name]
+    raise ArgumentError, "Không tìm thấy vật liệu có tên '#{name}' trong model" unless mat
+
+    {
+      ok: true,
+      material: material_metadata(mat),
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  def get_entity_attributes(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    target = args["persistent_id"] || args["entity_id"] || args["id"]
+    raise ArgumentError, "Cần cung cấp ID đối tượng (persistent_id hoặc entity_id)" unless target
+
+    entity = if args["persistent_id"]
+      find_entity_by_persistent_id(model, args["persistent_id"])
+    elsif args["entity_id"]
+      find_entity_by_id(model, args["entity_id"])
+    else
+      find_entity(model, target)
+    end
+    raise ArgumentError, "Không tìm thấy đối tượng với ID #{target}" unless entity
+
+    dict_filter = args["dictionary_name"].to_s.strip
+    dictionaries = {}
+
+    if !dict_filter.empty?
+      dict = entity.attribute_dictionary(dict_filter, false)
+      if dict
+        d_hash = {}
+        dict.each { |k, v| d_hash[k] = v }
+        dictionaries[dict_filter] = d_hash
+      end
+    elsif entity.attribute_dictionaries
+      entity.attribute_dictionaries.each do |d|
+        d_hash = {}
+        d.each { |k, v| d_hash[k] = v }
+        dictionaries[d.name] = d_hash
+      end
+    end
+
+    {
+      ok: true,
+      entity: entity_metadata(entity),
+      dictionary_count: dictionaries.keys.length,
+      dictionaries: dictionaries,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
     }
   end
 
@@ -1156,6 +1277,224 @@ module TuSketchupAgent
   end
 
   # ==========================================
+  # Dispatch API Handlers - Materials & Attributes
+  # ==========================================
+
+  def create_material(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    name = (args["name"] || args["material_name"]).to_s.strip
+    raise ArgumentError, "Tên vật liệu không được để trống" if name.empty?
+
+    mat = model.materials[name]
+    created_new = mat.nil?
+
+    with_operation(model, "AI - Create/Update Material") do
+      mat ||= model.materials.add(name)
+
+      # Handle color
+      if args["color"]
+        c_arg = args["color"]
+        if c_arg.is_a?(Array) && c_arg.length >= 3
+          mat.color = Sketchup::Color.new(c_arg[0].to_i, c_arg[1].to_i, c_arg[2].to_i, (c_arg[3] || 255).to_i)
+        elsif c_arg.is_a?(String) && !c_arg.strip.empty?
+          mat.color = Sketchup::Color.new(c_arg.strip)
+        end
+      end
+
+      # Handle alpha
+      if args.key?("alpha")
+        alpha_val = Float(args["alpha"]).clamp(0.0, 1.0)
+        mat.alpha = alpha_val
+      end
+
+      # Handle texture
+      if args["texture_path"] && !args["texture_path"].to_s.strip.empty?
+        tex_path = args["texture_path"].to_s.strip
+        if File.exist?(tex_path)
+          mat.texture = tex_path
+          tex = mat.texture
+          if tex
+            tex.width = Float(args["texture_width"]).mm if args["texture_width"]
+            tex.height = Float(args["texture_height"]).mm if args["texture_height"]
+          end
+        else
+          raise ArgumentError, "File texture không tồn tại: #{tex_path}"
+        end
+      end
+
+      bump_model_revision
+    end
+
+    {
+      ok: true,
+      operation: "create_material",
+      created_new: created_new,
+      material: material_metadata(mat),
+      model_revision: model_revision,
+      mcp_revision: model_revision,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  def set_entity_material(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    mat_name = (args["material_name"] || args["name"]).to_s.strip
+    raise ArgumentError, "Thiếu tham số tên vật liệu (material_name)" if mat_name.empty?
+
+    mat = model.materials[mat_name]
+    raise ArgumentError, "Vật liệu '#{mat_name}' chưa tồn tại trong model" unless mat
+
+    entities, missing_ids = resolve_entities_from_args(model, args)
+    raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để gán vật liệu" if entities.empty?
+
+    entities.each do |e|
+      validate_group_or_component!(e)
+    end
+
+    with_operation(model, "AI - Set Entity Material") do
+      entities.each do |e|
+        e.material = mat
+      end
+      bump_model_revision
+    end
+
+    {
+      ok: true,
+      operation: "set_entity_material",
+      updated_count: entities.length,
+      material_name: mat_name,
+      missing_ids: missing_ids,
+      entities: entities.map { |e| entity_metadata(e) },
+      model_revision: model_revision,
+      mcp_revision: model_revision,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  def clear_entity_material(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    entities, missing_ids = resolve_entities_from_args(model, args)
+    raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để xóa vật liệu" if entities.empty?
+
+    entities.each do |e|
+      validate_group_or_component!(e)
+    end
+
+    with_operation(model, "AI - Clear Entity Material") do
+      entities.each do |e|
+        e.material = nil
+      end
+      bump_model_revision
+    end
+
+    {
+      ok: true,
+      operation: "clear_entity_material",
+      cleared_count: entities.length,
+      missing_ids: missing_ids,
+      entities: entities.map { |e| entity_metadata(e) },
+      model_revision: model_revision,
+      mcp_revision: model_revision,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  def set_entity_attributes(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    dict_name = args["dictionary_name"].to_s.strip
+    raise ArgumentError, "Thiếu tham số dictionary_name" if dict_name.empty?
+
+    attrs = args["attributes"]
+    raise ArgumentError, "attributes phải là một Hash key-value" unless attrs.is_a?(Hash) && !attrs.empty?
+
+    entities, missing_ids = resolve_entities_from_args(model, args)
+    raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để gán thuộc tính" if entities.empty?
+
+    entities.each do |e|
+      validate_group_or_component!(e)
+    end
+
+    with_operation(model, "AI - Set Entity Attributes") do
+      entities.each do |e|
+        attrs.each do |k, v|
+          e.set_attribute(dict_name, k.to_s, v)
+        end
+      end
+      bump_model_revision
+    end
+
+    {
+      ok: true,
+      operation: "set_entity_attributes",
+      updated_count: entities.length,
+      dictionary_name: dict_name,
+      attributes_written: attrs.keys,
+      missing_ids: missing_ids,
+      entities: entities.map { |e| entity_metadata(e) },
+      model_revision: model_revision,
+      mcp_revision: model_revision,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  def delete_entity_attributes(args)
+    model = Sketchup.active_model
+    raise "Không có model nào đang mở" unless model
+
+    dict_name = args["dictionary_name"].to_s.strip
+    raise ArgumentError, "Thiếu tham số dictionary_name" if dict_name.empty?
+
+    keys = args["keys"].is_a?(Array) ? args["keys"].map(&:to_s) : nil
+
+    entities, missing_ids = resolve_entities_from_args(model, args)
+    raise ArgumentError, "Không tìm thấy đối tượng nào hợp lệ để xóa thuộc tính" if entities.empty?
+
+    entities.each do |e|
+      validate_group_or_component!(e)
+    end
+
+    with_operation(model, "AI - Delete Entity Attributes") do
+      entities.each do |e|
+        if keys && !keys.empty?
+          dict = e.attribute_dictionary(dict_name, false)
+          if dict
+            keys.each { |k| dict.delete_key(k) }
+          end
+        elsif e.attribute_dictionaries
+          e.attribute_dictionaries.delete(dict_name)
+        end
+      end
+      bump_model_revision
+    end
+
+    {
+      ok: true,
+      operation: "delete_entity_attributes",
+      updated_count: entities.length,
+      dictionary_name: dict_name,
+      deleted_keys: keys,
+      deleted_entire_dictionary: keys.nil? || keys.empty?,
+      missing_ids: missing_ids,
+      model_revision: model_revision,
+      mcp_revision: model_revision,
+      protocol_version: PROTOCOL_VERSION,
+      min_compatible_protocol_version: MIN_COMPATIBLE_PROTOCOL_VERSION
+    }
+  end
+
+  # ==========================================
   # Dispatch Router & Metrics
   # ==========================================
 
@@ -1229,6 +1568,22 @@ module TuSketchupAgent
       group_entities(args)
     when "ungroup"
       ungroup_entities(args)
+    when "get_materials"
+      get_materials(args)
+    when "get_material_info"
+      get_material_info(args)
+    when "create_material"
+      create_material(args)
+    when "set_entity_material"
+      set_entity_material(args)
+    when "clear_entity_material"
+      clear_entity_material(args)
+    when "get_entity_attributes"
+      get_entity_attributes(args)
+    when "set_entity_attributes"
+      set_entity_attributes(args)
+    when "delete_entity_attributes"
+      delete_entity_attributes(args)
     when "reload_extension"
       response_error(request_id, command, "FORBIDDEN", "Reload extension chỉ được thực hiện trực tiếp từ menu SketchUp")
     else
