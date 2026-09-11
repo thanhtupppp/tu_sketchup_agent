@@ -31,6 +31,9 @@ tests/
 │   └── regression_empty.skp       # Model SketchUp trắng dùng chuyên biệt cho regression
 ├── logs/                          # Lưu trữ nhật ký các lần chạy regression tự động
 ├── regression_suite_v1.py         # Bộ kiểm thử hồi quy 14 bài kiểm tra chuẩn v1.0
+├── test_materials_attributes_v1_1.py # Bộ kiểm thử 14 bài chuyên sâu Materials & Attributes (v1.1)
+├── test_components_assembly_v1_2.py  # Bộ kiểm thử 14 bài chuyên sâu Components & Assembly (v1.2)
+├── test_all_27_tools.py           # Bộ kiểm thử toàn diện 27 tool nền tảng
 └── README.md                      # Tài liệu chuẩn hóa giao thức & vận hành
 ```
 

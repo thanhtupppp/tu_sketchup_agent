@@ -26,14 +26,16 @@ Hệ thống cầu nối AI (Antigravity IDE, Cursor, Claude Desktop) với **Tr
 tu_sketchup_agent/
 ├── main.rb                           # Extension Ruby chạy trong SketchUp (TCP Server + SketchUp API)
 ├── tu_sketchup_agent_loader.rb       # File đăng ký Extension chuẩn của SketchUp
-├── mcp_server.py                     # FastMCP Server (Python) điều phối công cụ MCP
+├── mcp_server.py                     # FastMCP Server (Python) điều phối 33 công cụ MCP
 ├── test_client.py                    # Script kiểm tra socket cơ bản
 ├── tests/                            # Bộ kiểm thử tự động & hồi quy
 │   ├── models/
 │   │   └── regression_empty.skp      # Model SketchUp trống dùng riêng cho kiểm thử
 │   ├── logs/                         # Nhật ký lưu trữ các lần chạy test
 │   ├── regression_suite_v1.py        # Bộ kiểm thử hồi quy 14 bài kiểm tra chuẩn Protocol v1.0
-│   ├── test_materials_attributes_v1_1.py # Bộ kiểm thử 14 bài chuyên sâu cho Materials & Attributes
+│   ├── test_materials_attributes_v1_1.py # Bộ kiểm thử 14 bài chuyên sâu cho Materials & Attributes (v1.1)
+│   ├── test_components_assembly_v1_2.py  # Bộ kiểm thử 14 bài chuyên sâu cho Components & Assembly (v1.2)
+│   ├── test_all_27_tools.py          # Bộ kiểm thử unit/e2e xác nhận toàn diện 27 tool nền tảng
 │   └── README.md                     # Tài liệu đặc tả giao thức & quy chuẩn kiểm thử
 ├── docs/                             # Bản thiết kế kỹ thuật & tài liệu hướng dẫn
 └── README.md                         # Tài liệu hướng dẫn sử dụng chính thức
@@ -116,7 +118,7 @@ Copy file `tu_sketchup_agent_loader.rb` ra thư mục cha `Plugins` và đổi t
 
 ---
 
-## 4. Danh Sách 27 MCP Tools Khả Dụng
+## 4. Danh Sách 33 MCP Tools Khả Dụng
 
 ### 4.1. Hệ Thống & Trạng Thái Kết Nối (System & Connection)
 | Tool | Mô tả |
@@ -168,7 +170,17 @@ Copy file `tu_sketchup_agent_loader.rb` ra thư mục cha `Plugins` và đổi t
 | `sketchup_set_entity_attributes` | Ghi các cặp key/value (chuỗi, số thực, số nguyên, bool) vào Attribute Dictionary của Group/Component |
 | `sketchup_delete_entity_attributes` | Xóa key cụ thể hoặc xóa toàn bộ từ điển thuộc tính khỏi đối tượng |
 
-### 4.7. Thực Thi Mã Nhà Phát Triển (Developer Mode Execution)
+### 4.7. Quản Lý Component & Lắp Ráp (Component & Assembly — Protocol v1.2)
+| Tool | Mô tả |
+|---|---|
+| `sketchup_create_component` | Tạo ComponentDefinition mới từ Group hoặc tập hợp hình học, gán tên và mô tả chi tiết |
+| `sketchup_get_component_definitions` | Liệt kê các định nghĩa Component trong model, hỗ trợ bộ lọc tên và ẩn/hiện group nội bộ |
+| `sketchup_place_component_instance` | Chèn ComponentInstance theo tọa độ trực quan (position mm, rotation, scale) hoặc ma trận raw 4x4; hỗ trợ sub-assembly qua `parent_id` |
+| `sketchup_make_component_unique` | Tách riêng instance khỏi definition chung (Make Unique) tạo definition độc lập mới để tùy biến |
+| `sketchup_save_component_to_skp` | Xuất ComponentDefinition thành tệp `.skp` độc lập để lưu vào thư viện linh kiện dùng chung |
+| `sketchup_load_component_from_skp` | Nạp tệp `.skp` từ đĩa vào model dưới dạng ComponentDefinition sẵn sàng để lắp ráp |
+
+### 4.8. Thực Thi Mã Nhà Phát Triển (Developer Mode Execution)
 | Tool | Mô tả |
 |---|---|
 | `sketchup_execute_ruby` | Thực thi đoạn mã Ruby tùy ý trực tiếp trong SketchUp 2026 |
@@ -198,11 +210,11 @@ Mọi thao tác thay đổi hình khối đều được bọc trong một trans
 
 ## 6. Giao Thức & Khả Năng Tương Thích Ngược (Cách B)
 
-Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **Protocol v1.1** và **Protocol v1.0**:
+Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **Protocol v1.2**, **v1.1** và **v1.0**:
 
-* **Ruby Bridge**: Trả về `protocol_version: "1.1"` kèm `min_compatible_protocol_version: "1.0"` trên tất cả các endpoint.
-* **Python FastMCP**: Hỗ trợ tập phiên bản `SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1"}`.
-* Các client v1.0 tuân thủ kiểm tra tương thích đều có thể tiếp tục sử dụng các công cụ nền tảng mà không bị phá vỡ giao tiếp.
+* **Ruby Bridge**: Trả về `protocol_version: "1.2"` kèm `min_compatible_protocol_version: "1.0"` trên tất cả các endpoint.
+* **Python FastMCP**: Hỗ trợ tập phiên bản `SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1", "1.2"}`.
+* Các client v1.0 và v1.1 tuân thủ kiểm tra tương thích đều có thể tiếp tục sử dụng các công cụ nền tảng mà không bị phá vỡ giao tiếp.
 
 ---
 
@@ -218,14 +230,14 @@ Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **
 
 1. **Biên dịch & kiểm tra cú pháp**:
    ```powershell
-   python -m py_compile mcp_server.py tests/test_materials_attributes_v1_1.py tests/regression_suite_v1.py
+   python -m py_compile mcp_server.py tests/test_components_assembly_v1_2.py tests/test_materials_attributes_v1_1.py tests/regression_suite_v1.py
    python scratch/check_ruby_blocks.py
    git diff --check
    ```
 
-2. **Chạy kiểm thử hồi quy nền tảng (Regression v1.0)**:
+2. **Chạy kiểm thử Component & Lắp Ráp (Assembly Management v1.2)**:
    ```powershell
-   python -X utf8 tests/regression_suite_v1.py
+   python -X utf8 tests/test_components_assembly_v1_2.py
    ```
    *(Kỳ vọng: 14/14 PASS 100%)*
 
@@ -235,12 +247,25 @@ Dự án áp dụng cơ chế tương thích ngược có kiểm soát giữa **
    ```
    *(Kỳ vọng: 14/14 PASS 100%)*
 
+4. **Chạy kiểm thử hồi quy nền tảng (Regression v1.0)**:
+   ```powershell
+   python -X utf8 tests/regression_suite_v1.py
+   ```
+   *(Kỳ vọng: 14/14 PASS 100%)*
+
+5. **Chạy kiểm thử toàn diện 27 MCP tools**:
+   ```powershell
+   python -X utf8 tests/test_all_27_tools.py
+   ```
+   *(Kỳ vọng: 27/27 PASS 100%)*
+
 ---
 
 ## 8. Quy Trình Phát Triển & Đóng Góp (Git Workflow)
 
 * **Nhánh cơ sở ổn định (Baseline)**: `master` (gắn tag `v1.0.0`).
-* **Nhánh tính năng (Feature Branch)**: `feature/v1.1-materials-attributes` (gắn tag `v1.1.0`).
+* **Nhánh tính năng v1.1**: `feature/v1.1-materials-attributes` (gắn tag `v1.1.0`).
+* **Nhánh tính năng v1.2**: `feature/v1.2-components-assembly` (gắn tag `v1.2.0`).
 * **Quy chuẩn phát hành**:
-  - Không sửa đổi hoặc ghi đè tag `v1.0.0` trên nhánh `master`.
+  - Không sửa đổi hoặc ghi đè tag `v1.0.0` hoặc `v1.1.0`.
   - Mọi tính năng mới được hoàn thiện, xác nhận 100% test pass trên branch riêng, sau đó tạo **Pull Request** về nhánh phát hành chính.
