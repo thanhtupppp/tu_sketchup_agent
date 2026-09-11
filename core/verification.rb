@@ -4,7 +4,7 @@ module TuSketchupAgent
   module Verification
     extend self
 
-    CONTRACT_VERSION = 3
+    CONTRACT_VERSION = 4
     DIMENSION_TOLERANCE_MM = 1.0
 
     def entity_target?(result)
@@ -48,10 +48,9 @@ module TuSketchupAgent
         }
       end
 
-      verified = checks.all? { |check| check[:valid] }
       {
         attempted: true,
-        verified: verified,
+        verified: checks.all? { |check| check[:valid] },
         expected: deleted ? "entities_absent" : "entities_present",
         checked_count: checks.length,
         entities: checks
@@ -60,6 +59,16 @@ module TuSketchupAgent
 
     def nearly_equal?(actual, expected, tolerance = DIMENSION_TOLERANCE_MM)
       (actual.to_f - expected.to_f).abs <= tolerance
+    end
+
+    def vector_nearly_equal?(actual, expected, tolerance = DIMENSION_TOLERANCE_MM)
+      return false unless actual.is_a?(Array) && expected.is_a?(Array) && actual.length == 3 && expected.length == 3
+      actual.zip(expected).all? { |a, e| nearly_equal?(a, e, tolerance) }
+    end
+
+    def bounds_center(bounds)
+      return nil unless bounds.is_a?(Hash) && bounds[:center].is_a?(Array)
+      bounds[:center].map(&:to_f)
     end
 
     def verify_bounds(result, entity)
@@ -102,6 +111,78 @@ module TuSketchupAgent
         expected_mm: expected,
         actual_mm: actual,
         checks: checks
+      }
+    end
+
+    def verify_transform(result)
+      operation = result[:operation].to_s
+      return { attempted: false, verified: true, reason: "not_transform_operation" } unless %w[move copy rotate scale].include?(operation)
+
+      before = bounds_center(result[:before_bounds_mm])
+      after = bounds_center(result[:bounds_mm])
+      return { attempted: false, verified: true, reason: "transform_snapshot_unavailable" } unless before && after
+
+      expected = case operation
+      when "move", "copy"
+        vector = result[:vector_mm]
+        vector.is_a?(Array) && vector.length == 3 ? before.zip(vector.map(&:to_f)).map { |a, v| a + v } : nil
+      when "scale"
+        origin = result[:origin_mm]
+        scale = result[:scale]
+        if origin.is_a?(Array) && origin.length == 3 && scale.is_a?(Array) && scale.length == 3
+          origin.map(&:to_f).zip(before, scale.map(&:to_f)).map { |o, b, s| o + ((b - o) * s) }
+        end
+      when "rotate"
+        origin = result[:origin_mm]
+        axis = result[:axis]
+        angle = result[:angle_degrees]
+        if origin.is_a?(Array) && origin.length == 3 && angle && axis
+          o = origin.map(&:to_f)
+          a = case axis.to_s.downcase
+          when "x" then [1.0, 0.0, 0.0]
+          when "y" then [0.0, 1.0, 0.0]
+          when "z" then [0.0, 0.0, 1.0]
+          else axis.is_a?(Array) && axis.length == 3 ? axis.map(&:to_f) : nil
+          end
+          if a
+            length = Math.sqrt(a.sum { |v| v * v })
+            if length > 0.000001
+              a = a.map { |v| v / length }
+              v = before.zip(o).map { |b, ov| b - ov }
+              radians = angle.to_f * Math::PI / 180.0
+              c = Math.cos(radians)
+              s = Math.sin(radians)
+              cross = [
+                a[1] * v[2] - a[2] * v[1],
+                a[2] * v[0] - a[0] * v[2],
+                a[0] * v[1] - a[1] * v[0]
+              ]
+              dot = a.zip(v).sum { |av, vv| av * vv }
+              o.zip(v).each_with_index.map do |(ov, vv), i|
+                ov + vv * c + cross[i] * s + a[i] * dot * (1.0 - c)
+              end
+            end
+          end
+        end
+      end
+
+      return { attempted: false, verified: true, reason: "transform_expectation_unavailable" } unless expected
+
+      {
+        attempted: true,
+        verified: vector_nearly_equal?(after, expected),
+        tolerance_mm: DIMENSION_TOLERANCE_MM,
+        operation: operation,
+        before_center_mm: before,
+        actual_center_mm: after,
+        expected_center_mm: expected
+      }
+    rescue StandardError => e
+      {
+        attempted: true,
+        verified: false,
+        operation: operation,
+        error: e.message
       }
     end
 
@@ -154,6 +235,8 @@ module TuSketchupAgent
     end
 
     def verify_properties(model, result, args)
+      transform = verify_transform(result)
+      return { attempted: true, verified: transform[:verified], transform: transform } if transform[:attempted]
       return { attempted: false, verified: true, reason: "no_property_postcondition" } unless entity_target?(result)
       return { attempted: false, verified: true, reason: "delete_has_entity_absence_check" } if result[:operation].to_s == "delete"
 
@@ -185,6 +268,7 @@ module TuSketchupAgent
     def contract(command:, before_state:, after_state:, transaction:, handler_ok:, result: nil, model: nil, args: {})
       revision_delta = after_state[:revision].to_i - before_state[:revision].to_i
       committed = transaction[:status].to_s == "committed"
+      session_id_unchanged = before_state[:model_session_id].to_s == after_state[:model_session_id].to_s
 
       entity_verification = if result && model && entity_target?(result)
         verify_entities(model, result, deleted: command.to_s == "delete")
@@ -198,7 +282,7 @@ module TuSketchupAgent
         { attempted: false, verified: true, reason: "handler_not_successful" }
       end
 
-      verified = handler_ok == true && committed && revision_delta == 1 &&
+      verified = handler_ok == true && committed && revision_delta == 1 && session_id_unchanged &&
         entity_verification[:verified] && property_verification[:verified]
 
       {
@@ -213,7 +297,7 @@ module TuSketchupAgent
           before_revision: before_state[:revision],
           after_revision: after_state[:revision],
           revision_delta: revision_delta,
-          session_id_unchanged: before_state[:model_session_id].to_s == after_state[:model_session_id].to_s
+          session_id_unchanged: session_id_unchanged
         },
         entity_postcondition: entity_verification,
         property_postcondition: property_verification
