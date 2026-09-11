@@ -20,8 +20,8 @@ from mcp.server.fastmcp import FastMCP, Image
 HOST = "127.0.0.1"
 PORT = 9876
 TOKEN = "tu-local-secret"
-PROTOCOL_VERSION = "1.2"
-SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1", "1.2"}
+PROTOCOL_VERSION = "1.3"
+SUPPORTED_PROTOCOL_VERSIONS = {"1.0", "1.1", "1.2", "1.3"}
 
 mcp = FastMCP("sketchup-agent")
 
