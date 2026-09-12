@@ -4,6 +4,7 @@ require_relative "plan"
 require_relative "model_state"
 require_relative "recovery"
 require_relative "plan_checkpoint"
+require_relative "plan_preflight"
 
 module TuSketchupAgent
   module PlanExecutor
@@ -11,25 +12,35 @@ module TuSketchupAgent
 
     def execute(plan, router: TuSketchupAgent::Router, base_request_id: nil, **options)
       resume = options.key?(:resume) ? !!options[:resume] : false
-      validation = Plan.validate(plan, router_commands: router.registered_commands)
-      unless validation[:valid]
+      preflight = TuSketchupAgent::PlanPreflight.validate(
+        plan,
+        model: Sketchup.active_model,
+        router_commands: router.registered_commands
+      )
+      unless preflight[:valid]
         return {
           ok: false,
-          error: { code: "PLAN_INVALID", message: "Plan không hợp lệ" },
-          plan_validation: validation,
-          recovery: Recovery.policy_for("PLAN_INVALID").merge(contract_version: Recovery::CONTRACT_VERSION)
+          error: { code: "PLAN_PREFLIGHT_FAILED", message: "Plan không đạt preflight; chưa thực hiện mutation nào" },
+          plan_id: preflight[:plan_validation][:plan_id],
+          contract_version: Plan::CONTRACT_VERSION,
+          preflight: preflight,
+          recovery: {
+            contract_version: Recovery::CONTRACT_VERSION,
+            action: "FIX_PREFLIGHT_ERRORS_AND_REPLAN",
+            retry_safe: false,
+            mutation_committed: false,
+            retry_after: "fix_preflight"
+          }
         }
       end
 
       normalized = Plan.normalize(plan)
       model = Sketchup.active_model
-      unless model
-        return {
-          ok: false,
-          error: { code: "NO_ACTIVE_MODEL", message: "Không có model nào đang mở" },
-          recovery: Recovery.policy_for("NO_ACTIVE_MODEL").merge(contract_version: Recovery::CONTRACT_VERSION)
-        }
-      end
+      return {
+        ok: false,
+        error: { code: "NO_ACTIVE_MODEL", message: "Không có model nào đang mở" },
+        recovery: Recovery.policy_for("NO_ACTIVE_MODEL").merge(contract_version: Recovery::CONTRACT_VERSION)
+      } unless model
 
       plan_id = normalized[:plan_id]
       current_state = ModelState.state(model)
@@ -42,6 +53,7 @@ module TuSketchupAgent
             ok: false,
             error: { code: "PLAN_CHECKPOINT_NOT_FOUND", message: "Không tìm thấy checkpoint cho plan_id" },
             plan_id: plan_id,
+            preflight: preflight,
             recovery: {
               contract_version: Recovery::CONTRACT_VERSION,
               action: "START_PLAN_FROM_BEGINNING",
@@ -59,6 +71,7 @@ module TuSketchupAgent
             plan_id: plan_id,
             checkpoint: checkpoint,
             model_state: current_state,
+            preflight: preflight,
             recovery: {
               contract_version: Recovery::CONTRACT_VERSION,
               action: "REFRESH_MODEL_STATE_AND_REPLAN",
@@ -75,10 +88,10 @@ module TuSketchupAgent
 
       request_prefix = base_request_id.to_s.strip
       request_prefix = "plan_#{plan_id}" if request_prefix.empty?
-
       started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       step_results = []
       state_before = current_state
+
       normalized[:steps].each_with_index do |step, index|
         next if index < start_index
 
@@ -112,7 +125,7 @@ module TuSketchupAgent
         step_results << step_result
 
         unless response[:ok] == true
-          PlanCheckpoint.save(
+          checkpoint_after = PlanCheckpoint.save(
             plan_id,
             after_step_state,
             step_results.select { |item| item[:ok] },
@@ -129,8 +142,9 @@ module TuSketchupAgent
             failed_step_id: step[:step_id],
             resumed: resume,
             resumed_from_step_index: start_index,
+            preflight: preflight,
             steps: step_results,
-            checkpoint: PlanCheckpoint.get(plan_id),
+            checkpoint: checkpoint_after || PlanCheckpoint.get(plan_id),
             model_state: after_step_state,
             duration_ms: elapsed_ms(started_at),
             recovery: {
@@ -165,6 +179,7 @@ module TuSketchupAgent
         status: "completed",
         resumed: resume,
         resumed_from_step_index: start_index,
+        preflight: preflight,
         step_count: normalized[:steps].length,
         steps: step_results,
         checkpoint: checkpoint_after || PlanCheckpoint.get(plan_id),
