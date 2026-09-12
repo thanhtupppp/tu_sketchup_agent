@@ -99,12 +99,22 @@ module TuSketchupAgent
         result.delete(:error_class)
       end
 
+      # A mutation handler is identified by the existing response contract:
+      # it reports both the operation name and the resulting model revision.
+      # Read-only commands therefore cannot accidentally inherit transaction
+      # metadata from a previous mutation.
+      mutation_result = result[:ok] == true &&
+        !result[:operation].to_s.empty? && !result[:model_revision].nil?
+
+      if mutation_result
+        result[:transaction] = TuSketchupAgent::Operation.transaction_metadata
+      end
+
       # Verification is a mutation postcondition. Read-only guarded commands
       # (ping, model_summary, get_model_state, etc.) must not be forced through
       # the revision-delta == 1 contract. Mutation handlers identify themselves
       # with both an operation and the resulting model_revision.
-      verification_requested = guarded && before_state && result[:ok] == true &&
-        !result[:operation].to_s.empty? && !result[:model_revision].nil?
+      verification_requested = guarded && before_state && mutation_result
 
       if verification_requested
         model = Sketchup.active_model
@@ -136,7 +146,8 @@ module TuSketchupAgent
             verification: verification,
             mutation_committed: verification[:committed] == true,
             retry_safe: false,
-            model_state: after_state
+            model_state: after_state,
+            transaction: result[:transaction]
           )
         end
       end
