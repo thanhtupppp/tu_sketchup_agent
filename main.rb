@@ -42,6 +42,7 @@ module TuSketchupAgent
 
   def reload!
     Server.stop(true) rescue nil
+    load File.join(PLUGIN_DIR, "main.rb")
     load_files!
     Server.start(true) rescue nil
     puts "TuSketchupAgent: Extension and modules successfully reloaded."

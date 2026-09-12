@@ -2,6 +2,7 @@
 
 require "base64"
 require "tmpdir"
+require_relative "../core/model_state"
 
 module TuSketchupAgent
   module Handlers
@@ -38,7 +39,7 @@ module TuSketchupAgent
           ok: true,
           service: "tu-sketchup-agent",
           protocol_version: TuSketchupAgent::PROTOCOL_VERSION,
-          model_state: ModelState.state(model)
+          model_state: TuSketchupAgent::ModelState.state(model)
         }
       end
 
@@ -47,7 +48,7 @@ module TuSketchupAgent
         raise "Không có model nào đang mở" unless model
 
         bbox = model.bounds
-        state = ModelState.state(model)
+        state = TuSketchupAgent::ModelState.state(model)
         {
           ok: true,
           service: "tu-sketchup-agent",
@@ -200,7 +201,7 @@ module TuSketchupAgent
           class: result.class.name,
           model_revision: Operation.model_revision(model),
           mcp_revision: Operation.model_revision(model),
-          model_state: ModelState.state(model)
+          model_state: TuSketchupAgent::ModelState.state(model)
         }
       rescue StandardError => error
         err = {

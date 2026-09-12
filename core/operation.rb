@@ -1,15 +1,17 @@
 # frozen_string_literal: true
 
+require_relative "model_state"
+
 module TuSketchupAgent
   module Operation
     extend self
 
     def model_revision(model = nil)
-      ModelState.revision(model)
+      TuSketchupAgent::ModelState.revision(model)
     end
 
     def bump_model_revision(model = nil)
-      ModelState.bump_revision(model)
+      TuSketchupAgent::ModelState.bump_revision(model)
     end
 
     def last_transaction
@@ -31,7 +33,7 @@ module TuSketchupAgent
       end
       raise "No active model" unless model
 
-      ModelState.ensure_model!(model)
+      TuSketchupAgent::ModelState.ensure_model!(model)
 
       started = false
       @last_transaction = {

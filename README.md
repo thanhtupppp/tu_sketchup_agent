@@ -28,13 +28,13 @@ Hỗ trợ tự động hóa toàn diện từ dựng hình tham số 3D, biến
 │  ├── main.rb (Lifecycle loader & UI Extension Menu)         │
 │  ├── core/ (Server non-blocking, Router, Auth, Response)    │
 │  ├── services/ (EntityService, TransformService, Metadata)  │
-│  └── handlers/ (9 bộ Dispatch Handlers cho 41 nghiệp vụ)    │
+│  └── handlers/ (9 bộ Dispatch Handlers cho 42 nghiệp vụ)    │
 └──────────────────────────────┬──────────────────────────────┘
                                │  Main Thread Safe (UI.start_timer)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  Trimble SketchUp 2026 API                  │
-│       (Model, Entities, Layers, Pages, Materials, SKP)      │
+│       (Model, Entities, Layers, Pages, Materials, SKP, CAD) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,7 +64,7 @@ tu_sketchup_agent/
 │   ├── transformation_service.rb       # Ma trận dịch chuyển, xoay, tỷ lệ, thiết lập camera
 │   └── metadata_service.rb             # Xử lý thông số Layer, Material, Attribute Dictionaries
 │
-├── handlers/                           # BỘ XỬ LÝ LỆNH ĐỘC LẬP CHO 41 NGHIỆP VỤ
+├── handlers/                           # BỘ XỬ LÝ LỆNH ĐỘC LẬP CHO 42 NGHIỆP VỤ
 │   ├── system.rb                       # ping, model_summary, get_selection, capture, zoom
 │   ├── inspection.rb                   # get_entities, get_entity_info, get_bounding_box
 │   ├── geometry.rb                     # create_box, create_cylinder, create_wall
@@ -72,9 +72,9 @@ tu_sketchup_agent/
 │   ├── materials.rb                    # get_materials, get_material_info, create/set/clear material
 │   ├── attributes.rb                   # get/set/delete entity attributes (BIM metadata)
 │   ├── components.rb                   # create/get/place component, make unique, save to skp
-│   ├── assembly.rb                     # load component from skp
+│   ├── assembly.rb                     # load component from skp, import_file (Universal CAD/3D)
 │   ├── scenes.rb                       # layers/tags & scenes/camera (8 công cụ)
-│   └── init.rb                         # Khởi tạo & nạp toàn bộ 41 lệnh vào Router
+│   └── init.rb                         # Khởi tạo & nạp toàn bộ 42 lệnh vào Router
 │
 ├── mcp_agent/                          # PACKAGE PYTHON FASTMCP MODULE HÓA
 │   ├── __init__.py                     # Export FastMCP instance & hàm send_to_sketchup
@@ -89,11 +89,11 @@ tu_sketchup_agent/
 │       ├── materials.py                # 5 tools quản lý màu sắc & vật liệu
 │       ├── attributes.py               # 3 tools siêu dữ liệu thuộc tính BIM
 │       ├── components.py               # 5 tools định nghĩa & thực thể Component
-│       ├── assembly.py                 # 1 tool nạp linh kiện lắp ráp SKP
+│       ├── assembly.py                 # 2 tools nạp linh kiện SKP & CAD Universal Importer
 │       ├── scenes.py                   # 8 tools quản lý layer & góc nhìn camera/scene
-│       └── __init__.py                 # Đăng ký tự động 41 tools vào FastMCP
+│       └── __init__.py                 # Đăng ký tự động 42 tools vào FastMCP
 │
-├── tests/                              # BỘ KIỂM THỬ TỰ ĐỘNG (83/83 TESTS PASS)
+├── tests/                              # BỘ KIỂM THỬ TỰ ĐỘNG (84/84 TESTS PASS)
 │   ├── test_all_27_tools.py            # Kiểm thử toàn diện 27 tools nền tảng
 │   ├── regression_suite_v1.py          # Kiểm thử hồi quy 14 ca kiểm tra v1.0
 │   ├── test_materials_attributes_v1_1.py # Kiểm thử 14 ca quản lý vật liệu & BIM v1.1
@@ -191,15 +191,16 @@ FastMCP Server hỗ trợ chạy trực tiếp không cần cài đặt phức t
 
 ---
 
-## 4. Danh Mục Đầy Đủ 41 MCP Tools (Theo Nhóm Nghiệp Vụ)
+## 4. Danh Mục Đầy Đủ 43 MCP Tools (Theo Nhóm Nghiệp Vụ)
 
-### 4.1. Hệ Thống & Quan Sát Viewport (System & Vision — 6 tools)
+### 4.1. Hệ Thống & Quan Sát Viewport (System & Vision — 7 tools)
 *Được triển khai tại: [handlers/system.rb](file:///c:/Users/thanh/AppData/Roaming/SketchUp/SketchUp%202026/SketchUp/Plugins/tu_sketchup_agent/handlers/system.rb) và [mcp_agent/tools/system.py](file:///c:/Users/thanh/AppData/Roaming/SketchUp/SketchUp%202026/SketchUp/Plugins/tu_sketchup_agent/mcp_agent/tools/system.py)*
 
 | Tool Name | Tham Số Chính | Chức Năng & Đặc Điểm Nghiệp Vụ |
 |---|---|---|
 | `sketchup_ping` | *(none)* | Kiểm tra trạng thái TCP bridge, phiên bản SketchUp, protocol và trạng thái Dev Mode |
 | `sketchup_get_model_info` | *(none)* | Lấy tổng quan kích thước BoundingBox, số lượng tags, scenes, materials, revision của model |
+| `sketchup_get_model_state` | *(none)* | Lấy định danh phiên làm việc (UUID), revision hiện tại và timestamp của mô hình (Optimistic Concurrency) |
 | `sketchup_get_selection` | *(none)* | Trích xuất danh sách đối tượng người dùng đang click chọn trên màn hình Viewport |
 | `sketchup_zoom_extents` | *(none)* | Tự động zoom vừa vặn toàn màn hình bao trọn toàn bộ hình khối trong không gian 3D |
 | `sketchup_capture_viewport` | `width`, `height` | Chụp ảnh khung nhìn 3D hiện tại trả về dữ liệu hình ảnh trực tiếp cho AI phân tích thị giác |
@@ -268,7 +269,7 @@ FastMCP Server hỗ trợ chạy trực tiếp không cần cài đặt phức t
 
 ---
 
-### 4.7. Quản Lý Component & Lắp Ráp Linh Kiện (Components & Assembly — 6 tools)
+### 4.7. Quản Lý Component, Lắp Ráp & CAD Import (Components, Assembly & CAD — 7 tools)
 *Được triển khai tại: [handlers/components.rb](file:///c:/Users/thanh/AppData/Roaming/SketchUp/SketchUp%202026/SketchUp/Plugins/tu_sketchup_agent/handlers/components.rb), [handlers/assembly.rb](file:///c:/Users/thanh/AppData/Roaming/SketchUp/SketchUp%202026/SketchUp/Plugins/tu_sketchup_agent/handlers/assembly.rb)*
 
 | Tool Name | Tham Số Chính | Chức Năng & Đặc Điểm Nghiệp Vụ |
@@ -279,6 +280,7 @@ FastMCP Server hỗ trợ chạy trực tiếp không cần cài đặt phức t
 | `sketchup_make_component_unique` | `persistent_id`, `new_name` | Tách riêng một instance thành definition độc lập để tùy biến không ảnh hưởng bản gốc |
 | `sketchup_save_component_to_skp` | `definition_name`, `file_path` | Xuất linh kiện ra tệp `.skp` độc lập lưu vào thư viện linh kiện dùng chung |
 | `sketchup_load_component_from_skp` | `file_path` | Nạp linh kiện từ file `.skp` bên ngoài đĩa vào mô hình sẵn sàng lắp ráp |
+| `sketchup_import_file` | `file_path`, `units`, `merge_coplanar_faces`, `orient_faces`, `preserve_origin`, `as_component`, `name` | Nạp trực tiếp tệp bản vẽ CAD 2D/3D (`.dwg`, `.dxf`, `.dae`, `.obj`, `.3ds`, `.ifc`, `.skp`) vào mô hình SketchUp |
 
 ---
 
@@ -320,17 +322,20 @@ Khi sửa đổi bất kỳ tệp nào trong `core/`, `services/`, hoặc `handl
 
 ---
 
-## 6. Bộ Kiểm Thử Tự Động Toàn Diện (83/83 Tests PASS)
+## 6. Bộ Kiểm Thử Tự Động Toàn Diện (8 Test Suites)
 
-Dự án sở hữu 5 bộ kiểm thử tự động độc lập, xác thực trực tiếp trên phiên bản **SketchUp 2026**:
+Dự án sở hữu 8 bộ kiểm thử tự động độc lập, xác thực trực tiếp trên phiên bản **SketchUp 2026**:
 
 ```powershell
-# Chạy toàn bộ 5 bộ kiểm thử:
-python -X utf8 tests/test_all_27_tools.py            # 27/27 PASS (100%)
-python -X utf8 tests/regression_suite_v1.py          # 14/14 PASS (100%)
-python -X utf8 tests/test_materials_attributes_v1_1.py # 14/14 PASS (100%)
-python -X utf8 tests/test_components_assembly_v1_2.py  # 14/14 PASS (100%)
-python -X utf8 tests/test_layers_scenes_v1_3.py      # 14/14 PASS (100%)
+# Chạy toàn bộ 8 bộ kiểm thử:
+python -X utf8 tests/test_all_27_tools.py            # 27/27 PASS (100% - Tools nền tảng)
+python -X utf8 tests/regression_suite_v1.py          # 14/14 PASS (100% - Regression v1.0)
+python -X utf8 tests/test_materials_attributes_v1_1.py # 14/14 PASS (100% - Materials & Attributes v1.1)
+python -X utf8 tests/test_components_assembly_v1_2.py  # 15/15 PASS (100% - Components, Assembly & CAD Import v1.2)
+python -X utf8 tests/test_layers_scenes_v1_3.py      # 14/14 PASS (100% - Layers & Scenes v1.3)
+python -X utf8 tests/test_model_state_v1_4.py        # Model State & Revision Contract v1.4
+python -X utf8 tests/test_model_state_guards_v1_5.py # Optimistic Concurrency Guards v1.5
+python -X utf8 tests/test_model_state_guards_v1_6.py # Transaction & Verification Contract v1.6
 ```
 
 > [!TIP]
@@ -338,7 +343,39 @@ python -X utf8 tests/test_layers_scenes_v1_3.py      # 14/14 PASS (100%)
 
 ---
 
-## 7. Chính Sách Bảo Mật & Developer Mode
+## 7. Showcase: Tự Động Hóa CAD-to-3D Nhà Cấp 4 (11.5m x 20.5m)
+
+Tu SketchUp Agent đã ứng dụng thành công công cụ **`sketchup_import_file`** để chuyển hóa tự động bản vẽ thiết kế thi công AutoCAD DWG (`[BVTK] Nha cap 4, 11.5x20.5 _ KenhXayDung.vn.dwg`) thành mô hình kiến trúc 3D hoàn chỉnh trong SketchUp 2026:
+
+### Quy Trình Xử Lý Tự Động:
+1. **Nạp & Cách Ly Bản Vẽ CAD (`sketchup_import_file`)**:
+   - Nạp tệp DWG hơn 124,000 thực thể vào SketchUp chỉ trong vài giây.
+   - Phân loại toàn bộ các layer CAD sang Tag chuyên biệt `Tag_00_CAD_Drawing_DWG` để dễ dàng ẩn/hiện, không làm ảnh hưởng đến không gian dựng 3D.
+2. **Giải Mã Thông Số Kiến Trúc (CAD Reverse Engineering)**:
+   - **Lưới trục ngang (Trục 1 đến 7)**: Chiều dài 20.6m (khoảng cách 1-2: 2.5m sảnh chính; 2-3: 2.0m; 3-4: 4.1m; 4-5: 5.2m; 5-6: 3.5m; 6-7: 3.3m).
+   - **Lưới trục dọc (Trục A đến D)**: Chiều rộng 10.1m + 1.4m sảnh phụ = 11.5m (A-B: 3.2m; B-C: 4.0m; C-D: 2.9m).
+   - **Cao độ**: Cốt sàn +0.450m (3 bậc tam cấp), trần cao +4.35m (tường cao 3.9m), đỉnh mái +6.95m (độ dốc mái Thái 30°).
+3. **Mô Hình Hóa 3D Đa Phân Lớp (BIM Architecture)**:
+   - **Cốt nền & Tam cấp**: Nền móng +450mm ốp đá granit và hệ bậc tam cấp sảnh chính, sảnh phụ.
+   - **Cột sảnh cổ điển**: 2 cột sảnh chính có đế vuông hoa văn và thân cột 400x400mm; 2 cột sảnh phụ có dầm đỡ mái dốc.
+   - **Tường bao & Ngăn phòng**: Tường bao 220mm có chỉ nước ngang trang trí; tường ngăn 110mm hoàn thiện công năng 4 phòng ngủ, phòng khách, phòng thờ trang nghiêm, phòng sinh hoạt chung, bếp ăn và 2 cụm WC.
+   - **Cửa đi & Cửa sổ**: Cửa đi chính 4 cánh pano gỗ kết hợp ô kính lấy sáng và tay nắm mạ vàng; các cửa sổ lùa đa cánh viền phào chỉ nổi.
+   - **Mái Thái giật cấp**: Mái ngói đa tầng giật cấp, ngói bò đỉnh mái, diềm mái viền trắng, trán hồi tam giác có ô thoáng tròn và nan chớp trang trí.
+4. **Kiến Trúc Module Thân & Mái (Cutaway Architecture)**:
+   - Tách biệt thành 2 component độc lập: `Tag_01_Architecture_House_Body` và `Tag_01_Architecture_House_Roof`.
+   - Cho phép bóc tách mái (Cutaway View) trong tích tắc để quan sát bố cục phân chia công năng nội thất bên trong.
+5. **Hệ Thống 7 Góc Nhìn Bản Vẽ & Render Chuẩn Xuất Bản**:
+   - `01_PhoiCanh_MatTien`: Phối cảnh góc 3D mặt tiền sảnh chính kết hợp nhân vật mẫu tỷ lệ kiến trúc.
+   - `02_MatDung_Chinh`: Hình chiếu đứng 2D mặt tiền chính chuẩn bản vẽ kỹ thuật CAD (Orthographic).
+   - `03_MatDung_Ben_Phai`: Hình chiếu đứng 2D mặt bên phải dài 20.6m.
+   - `04_MatBang_TongThe`: Hình chiếu bằng 2D nhìn từ trên cao bao trọn toàn bộ mái và sân hè.
+   - `05_PhoiCanh_ChimBay`: Phối cảnh góc chim bay (Bird's Eye View) từ trên cao 19m.
+   - `06_PhoiCanh_BocMai_NoiThat`: Phối cảnh 3D góc cao bóc mái (Roof Hidden) nhìn rõ toàn bộ 4 phòng ngủ, phòng khách, phòng thờ và bếp ăn.
+   - `07_MatBang_NoiThat_2D`: Mặt bằng 2D phân bổ công năng nội thất nhìn từ trên xuống trực giao.
+
+---
+
+## 8. Chính Sách Bảo Mật & Developer Mode
 
 > [!CAUTION]
 > Công cụ `sketchup_execute_ruby` cho phép thực thi mã lệnh Ruby trực tiếp trên máy cục bộ, vì vậy **mặc định luôn bị khóa** với mã lỗi `DEV_MODE_REQUIRED`.
@@ -347,11 +384,14 @@ python -X utf8 tests/test_layers_scenes_v1_3.py      # 14/14 PASS (100%)
 
 ---
 
-## 8. Lịch Sử Phiên Bản & Giao Thức (Changelog)
+## 9. Lịch Sử Phiên Bản & Giao Thức (Changelog)
 
-- **v1.3.0 (Hiện tại - Nhánh `master`)**:
+- **v1.3.1 (Hiện tại - Nhánh `master`)**:
+  - Bổ sung công cụ thứ 42 **`sketchup_import_file`**: Nạp phổ quát các tệp bản vẽ CAD 2D/3D (`.dwg`, `.dxf`, `.dae`, `.obj`, `.3ds`, `.ifc`, `.skp`) vào SketchUp 2026.
+  - Tự động hóa thành công toàn trình chuyển đổi CAD DWG thành mô hình 3D Nhà Cấp 4 (11.5m x 20.5m) với 7 scenes và renders độ phân giải cao 1920x1080.
+  - Bộ kiểm thử mở rộng đạt **84/84 tests PASS (100%)**.
+- **v1.3.0**:
   - Tái cấu trúc toàn diện kiến trúc sang Domain-Driven Modular Architecture (`core/`, `services/`, `handlers/`, `mcp_agent/`).
-  - Nâng cấp số lượng công cụ lên **41 MCP Tools**.
   - Bổ sung 8 công cụ quản lý Phân tầng (Layers/Tags) và Bản vẽ kỹ thuật 2D/3D (Scenes & Camera Presets).
   - Khắc phục triệt để vấn đề blocking socket, bổ sung vòng lặp thử lại `Errno::EADDRINUSE` và bảo vệ timer chống crash.
 - **v1.2.0**: Bổ sung 6 công cụ quản lý Component Definitions, Sub-assembly lồng nhau, Make Unique, xuất/nhập tệp linh kiện `.skp`.
@@ -360,6 +400,6 @@ python -X utf8 tests/test_layers_scenes_v1_3.py      # 14/14 PASS (100%)
 
 ---
 
-## 9. Giấy Phép (License)
+## 10. Giấy Phép (License)
 
 Dự án phát triển bởi **Tu** phục vụ cộng đồng kiến trúc sư, kỹ sư thiết kế và lập trình viên tích hợp trí tuệ nhân tạo (AI-assisted CAD Design). Mọi quyền được bảo lưu © 2026.

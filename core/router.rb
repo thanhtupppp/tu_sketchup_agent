@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require_relative "model_state"
+require_relative "verification"
+
 module TuSketchupAgent
   module Router
     extend self
@@ -45,8 +48,8 @@ module TuSketchupAgent
         model = Sketchup.active_model
         return Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở") unless model
 
-        before_state = ModelState.state(model)
-        revision_matches = expected_revision.nil? || ModelState.matches_revision?(expected_revision, model)
+        before_state = TuSketchupAgent::ModelState.state(model)
+        revision_matches = expected_revision.nil? || TuSketchupAgent::ModelState.matches_revision?(expected_revision, model)
         session_matches = expected_session_id.nil? || expected_session_id.to_s == before_state[:model_session_id].to_s
 
         unless revision_matches && session_matches
@@ -98,8 +101,8 @@ module TuSketchupAgent
 
       if guarded && before_state
         model = Sketchup.active_model
-        after_state = ModelState.state(model)
-        verification = Verification.contract(
+        after_state = TuSketchupAgent::ModelState.state(model)
+        verification = TuSketchupAgent::Verification.contract(
           command: command,
           before_state: before_state,
           after_state: after_state,
