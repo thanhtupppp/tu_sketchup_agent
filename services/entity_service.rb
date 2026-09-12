@@ -68,16 +68,22 @@ module TuSketchupAgent
         return nil unless model && target
 
         if target.is_a?(Hash)
-          if target["persistent_id"]
-            find_entity_by_persistent_id(model, target["persistent_id"])
-          elsif target["entity_id"]
-            find_entity_by_id(model, target["entity_id"])
-          elsif target["reference_id"]
-            find_entity_by_persistent_id(model, target["reference_id"])
-          elsif target["parent_id"]
-            find_entity_by_persistent_id(model, target["parent_id"]) || find_entity_by_id(model, target["parent_id"])
-          elsif target["id"]
-            find_entity_by_persistent_id(model, target["id"]) || find_entity_by_id(model, target["id"])
+          pid = target[:persistent_id] || target["persistent_id"]
+          eid = target[:entity_id] || target["entity_id"]
+          ref = target[:reference_id] || target["reference_id"]
+          par = target[:parent_id] || target["parent_id"]
+          id_val = target[:id] || target["id"]
+
+          if pid
+            find_entity_by_persistent_id(model, pid)
+          elsif eid
+            find_entity_by_id(model, eid)
+          elsif ref
+            find_entity_by_persistent_id(model, ref)
+          elsif par
+            find_entity_by_persistent_id(model, par) || find_entity_by_id(model, par)
+          elsif id_val
+            find_entity_by_persistent_id(model, id_val) || find_entity_by_id(model, id_val)
           end
         else
           find_entity_by_persistent_id(model, target) || find_entity_by_id(model, target)
