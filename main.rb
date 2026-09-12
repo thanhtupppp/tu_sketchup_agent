@@ -19,6 +19,7 @@ module TuSketchupAgent
     "core/recovery",
     "core/plan",
     "core/plan_checkpoint",
+    "core/plan_references",
     "core/plan_preflight",
     "core/plan_executor",
     "core/router",
