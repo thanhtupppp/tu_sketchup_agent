@@ -48,7 +48,7 @@ def assert_ok(response):
 def main():
     state = request("get_model_state")
     assert_ok(state)
-    current = state
+    current = state.get("model_state", state)
     revision = int(current["revision"])
     session_id = current["model_session_id"]
 
@@ -71,7 +71,7 @@ def main():
 
     created_state = request("get_model_state")
     assert_ok(created_state)
-    after_create = created_state
+    after_create = created_state.get("model_state", created_state)
     assert int(after_create["revision"]) == revision + 1
 
     wrong_session = request(
@@ -102,12 +102,12 @@ def main():
 
     final_state = request("get_model_state")
     assert_ok(final_state)
-    assert int(final_state["revision"]) == int(after_create["revision"])
+    final_curr = final_state.get("model_state", final_state)
+    assert int(final_curr["revision"]) == int(after_create["revision"])
 
-    created_result = created.get("result", {})
-    persistent_id = created_result.get("persistent_id")
+    persistent_id = created.get("persistent_id") or created.get("entity", {}).get("persistent_id") or created.get("result", {}).get("persistent_id")
     if persistent_id:
-        request("delete", {"persistent_id": persistent_id})
+        request("delete", {"persistent_ids": [persistent_id]})
 
     print("MODEL STATE GUARD v1.6: PASS")
 
