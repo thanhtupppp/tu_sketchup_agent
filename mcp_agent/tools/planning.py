@@ -16,8 +16,16 @@ def register(mcp: FastMCP) -> None:
         return json.dumps(res, indent=2, ensure_ascii=False)
 
     @mcp.tool()
+    def sketchup_preflight_plan(plan: Dict[str, Any]) -> str:
+        """Run non-mutating preflight checks for required arguments and entity dependencies."""
+        if not isinstance(plan, dict):
+            raise ValueError("plan phải là object/dict")
+        res = send_to_sketchup("preflight_plan", {"plan": plan})
+        return json.dumps(res, indent=2, ensure_ascii=False)
+
+    @mcp.tool()
     def sketchup_execute_plan(plan: Dict[str, Any], resume: bool = False) -> str:
-        """Execute or resume a sequential plan using checkpoint + model session/revision guards."""
+        """Execute or resume a sequential plan using preflight, checkpoint, and model session/revision guards."""
         if not isinstance(plan, dict):
             raise ValueError("plan phải là object/dict")
         res = send_to_sketchup(
