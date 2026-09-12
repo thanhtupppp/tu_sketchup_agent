@@ -49,3 +49,39 @@ def register(mcp: FastMCP) -> None:
             payload["parent_id"] = parent_id
         res = send_to_sketchup("place_component_instance", payload)
         return json.dumps(res, indent=2, ensure_ascii=False)
+
+    @mcp.tool()
+    def sketchup_import_file(
+        file_path: str,
+        units: str = "mm",
+        merge_coplanar_faces: bool = True,
+        orient_faces: bool = True,
+        preserve_origin: bool = True,
+        as_component: bool = True,
+        name: Optional[str] = None,
+    ) -> str:
+        """
+        Nạp (Import) tệp bản vẽ CAD hoặc mô hình 3D ngoài đĩa vào SketchUp 2026.
+        Định dạng hỗ trợ: .dwg, .dxf, .dae, .obj, .3ds, .skp, .ifc, .dem.
+
+        Args:
+            file_path: Đường dẫn tuyệt đối hoặc tương đối đến tệp cần nạp.
+            units: Đơn vị kích thước bản vẽ ("mm", "cm", "m", "in", "ft" - mặc định "mm").
+            merge_coplanar_faces: Tự động hợp nhất các mặt phẳng đồng phẳng trong bản vẽ CAD.
+            orient_faces: Tự động định hướng đồng nhất mặt pháp tuyến (Front/Back face).
+            preserve_origin: Bảo toàn tọa độ gốc (Origin) từ file CAD.
+            as_component: Nạp thành ComponentDefinition và chèn instance vào mô hình.
+            name: Tên đặt cho Component hoặc Group được nạp (tùy chọn).
+        """
+        payload: Dict[str, Any] = {
+            "file_path": file_path,
+            "units": units,
+            "merge_coplanar_faces": merge_coplanar_faces,
+            "orient_faces": orient_faces,
+            "preserve_origin": preserve_origin,
+            "as_component": as_component,
+        }
+        if name:
+            payload["name"] = name
+        res = send_to_sketchup("import_file", payload, timeout=180.0)
+        return json.dumps(res, indent=2, ensure_ascii=False)

@@ -222,7 +222,20 @@ def run_suite():
         created_pids.append(imported_inst_pid)
         print(f"[TEST 12] place_component_instance (Imported Definition): PID {imported_inst_pid} -> PASS")
 
-        # 13. Error Handling
+        # 13. import_file (Universal CAD / 3D Model Importer)
+        import_res = send("import_file", {
+            "file_path": skp_path,
+            "units": "mm",
+            "as_component": True,
+            "name": "Comp_Universal_Import"
+        })
+        assert import_res.get("ok") is True, f"import_file thất bại: {import_res}"
+        u_pid = import_res.get("persistent_id")
+        assert u_pid, "Thiếu persistent_id từ import_file"
+        created_pids.append(u_pid)
+        print(f"[TEST 13] import_file (Universal CAD / 3D Model Importer): PID {u_pid} -> PASS")
+
+        # 14. Error Handling
         err_place = send("place_component_instance", {"definition_name": "Non_Existent_Definition_XYZ"})
         assert err_place.get("ok") is False, "Kỳ vọng lỗi khi chèn definition không tồn tại"
 
@@ -231,12 +244,15 @@ def run_suite():
 
         err_ext = send("load_component_from_skp", {"file_path": __file__})
         assert err_ext.get("ok") is False, "Kỳ vọng lỗi khi nạp file không phải đuôi .skp"
-        print(f"[TEST 13] Error Handling (Non-existent definition, missing file, non-skp extension) -> PASS")
 
-        # 14. Dọn dẹp đối tượng test
+        err_imp = send("import_file", {"file_path": "C:/invalid_file_9999.xyz"})
+        assert err_imp.get("ok") is False, "Kỳ vọng lỗi khi import file không tồn tại hoặc định dạng không hỗ trợ"
+        print(f"[TEST 14] Error Handling (Non-existent definition, missing file, non-supported extension) -> PASS")
+
+        # 15. Dọn dẹp đối tượng test
         del_res = send("delete", {"persistent_ids": created_pids})
         assert del_res.get("ok") is True, f"Dọn dẹp thất bại: {del_res}"
-        print(f"[TEST 14] Cleanup: Đã xóa {del_res.get('deleted_count')} đối tượng thử nghiệm -> PASS")
+        print(f"[TEST 15] Cleanup: Đã xóa {del_res.get('deleted_count')} đối tượng thử nghiệm -> PASS")
 
     finally:
         for fpath in temp_files:
@@ -247,7 +263,7 @@ def run_suite():
                     pass
 
     print("-" * 70)
-    print("KẾT QUẢ: 14/14 BÀI TEST COMPONENT & ASSEMBLY v1.2 ĐÃ VƯỢT QUA!")
+    print("KẾT QUẢ: 15/15 BÀI TEST COMPONENT & ASSEMBLY v1.2 ĐÃ VƯỢT QUA!")
     print("=" * 70)
 
 
