@@ -5,6 +5,7 @@ require_relative "model_state"
 require_relative "recovery"
 require_relative "plan_checkpoint"
 require_relative "plan_preflight"
+require_relative "plan_references"
 
 module TuSketchupAgent
   module PlanExecutor
@@ -46,6 +47,7 @@ module TuSketchupAgent
       current_state = ModelState.state(model)
       checkpoint = PlanCheckpoint.get(plan_id)
       start_index = 0
+      outputs = {}
 
       if resume
         unless checkpoint
@@ -82,6 +84,7 @@ module TuSketchupAgent
           }
         end
 
+        outputs = deep_dup(checkpoint[:outputs] || {})
         completed_ids = Array(checkpoint[:completed_step_ids]).map(&:to_s)
         start_index = normalized[:steps].index { |step| !completed_ids.include?(step[:step_id].to_s) } || normalized[:steps].length
       end
@@ -96,8 +99,39 @@ module TuSketchupAgent
         next if index < start_index
 
         current_state = ModelState.state(model)
-        args = deep_dup(step[:arguments])
-        args = {} unless args.is_a?(Hash)
+        begin
+          args = TuSketchupAgent::PlanReferences.resolve(deep_dup(step[:arguments]), outputs)
+        rescue KeyError => e
+          checkpoint_after = PlanCheckpoint.save(
+            plan_id,
+            current_state,
+            step_results.select { |item| item[:ok] },
+            status: "failed",
+            failed_step_index: index,
+            outputs: outputs
+          )
+          return {
+            ok: false,
+            error: { code: "PLAN_REFERENCE_UNRESOLVED", message: e.message },
+            plan_id: plan_id,
+            contract_version: Plan::CONTRACT_VERSION,
+            status: "failed",
+            failed_step_index: index,
+            failed_step_id: step[:step_id],
+            preflight: preflight,
+            steps: step_results,
+            checkpoint: checkpoint_after || PlanCheckpoint.get(plan_id),
+            model_state: current_state,
+            recovery: {
+              contract_version: Recovery::CONTRACT_VERSION,
+              action: "FIX_REFERENCE_AND_RESUME",
+              retry_safe: false,
+              mutation_committed: false,
+              retry_after: "fix_reference"
+            }
+          }
+        end
+
         args["expected_model_revision"] = current_state[:revision]
         args["expected_model_session_id"] = current_state[:model_session_id]
 
@@ -130,7 +164,8 @@ module TuSketchupAgent
             after_step_state,
             step_results.select { |item| item[:ok] },
             status: "failed",
-            failed_step_index: index
+            failed_step_index: index,
+            outputs: outputs
           )
           return {
             ok: false,
@@ -157,11 +192,13 @@ module TuSketchupAgent
           }
         end
 
+        outputs[step[:step_id].to_s] = deep_dup(response)
         PlanCheckpoint.save(
           plan_id,
           after_step_state,
           step_results.select { |item| item[:ok] },
-          status: "running"
+          status: "running",
+          outputs: outputs
         )
       end
 
@@ -170,7 +207,8 @@ module TuSketchupAgent
         plan_id,
         state_after,
         step_results.select { |item| item[:ok] },
-        status: "completed"
+        status: "completed",
+        outputs: outputs
       )
       {
         ok: true,
