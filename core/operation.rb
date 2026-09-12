@@ -26,10 +26,40 @@ module TuSketchupAgent
       end
     end
 
+    # Stable transaction metadata exposed to the Router/MCP response contract.
+    # Keep this derived from the operation context so callers do not need to
+    # infer revision changes from the top-level model_revision field.
+    def transaction_metadata(transaction = nil)
+      tx = transaction || last_transaction
+      return tx unless tx.is_a?(Hash)
+
+      before = tx[:revision_before]
+      after = tx[:revision_after]
+      delta = if !before.nil? && !after.nil?
+        after.to_i - before.to_i
+      end
+
+      {
+        status: tx[:status],
+        operation: tx[:operation],
+        revision_requested: tx[:revision_requested] == true,
+        revision_request_count: tx[:revision_request_count].to_i,
+        revision_bumped: tx[:revision_bumped] == true,
+        revision_before: before,
+        revision_after: after,
+        revision_delta: delta
+      }
+    end
+
     def last_transaction
       @last_transaction || {
         status: "not_started",
-        operation: nil
+        operation: nil,
+        revision_requested: false,
+        revision_request_count: 0,
+        revision_bumped: false,
+        revision_before: nil,
+        revision_after: nil
       }
     end
 
@@ -46,13 +76,15 @@ module TuSketchupAgent
       raise "No active model" unless model
 
       TuSketchupAgent::ModelState.ensure_model!(model)
+      revision_before = TuSketchupAgent::ModelState.revision(model)
 
       previous_context = @operation_context
       @operation_context = {
         model: model,
         revision_requested: false,
         revision_request_count: 0,
-        revision: TuSketchupAgent::ModelState.revision(model)
+        revision: revision_before,
+        revision_before: revision_before
       }
 
       started = false
@@ -60,7 +92,10 @@ module TuSketchupAgent
         status: "started",
         operation: op_name,
         revision_requested: false,
-        revision_request_count: 0
+        revision_request_count: 0,
+        revision_bumped: false,
+        revision_before: revision_before,
+        revision_after: revision_before
       }
 
       model.start_operation(op_name, true, false, trans)
@@ -77,25 +112,29 @@ module TuSketchupAgent
         context[:revision] = TuSketchupAgent::ModelState.bump_revision(model)
       end
 
+      revision_after = context[:revision]
       @last_transaction = {
         status: "committed",
         operation: op_name,
         revision_requested: context[:revision_requested],
         revision_request_count: context[:revision_request_count],
         revision_bumped: context[:revision_requested],
-        revision: context[:revision]
+        revision_before: context[:revision_before],
+        revision_after: revision_after
       }
       result
     rescue StandardError
       model.abort_operation if started
       context = @operation_context
+      revision_after = TuSketchupAgent::ModelState.revision(model)
       @last_transaction = {
         status: "aborted",
         operation: op_name,
         revision_requested: context ? context[:revision_requested] : false,
         revision_request_count: context ? context[:revision_request_count] : 0,
         revision_bumped: false,
-        revision: context ? context[:revision] : TuSketchupAgent::ModelState.revision(model)
+        revision_before: context ? context[:revision_before] : revision_after,
+        revision_after: revision_after
       }
       raise
     ensure
@@ -110,6 +149,10 @@ module TuSketchupAgent
 
   def self.bump_model_revision(model = nil)
     Operation.bump_model_revision(model)
+  end
+
+  def self.transaction_metadata(transaction = nil)
+    Operation.transaction_metadata(transaction)
   end
 
   def self.last_transaction
