@@ -115,13 +115,22 @@ module TuSketchupAgent
         result[:verification] = verification
 
         if result[:ok] == true && !verification[:verified]
+          # Verification runs after the handler's transaction has returned.
+          # At this point SketchUp may already have committed the mutation, so
+          # never imply that TRANSACTION_VERIFICATION_FAILED means rollback.
+          # The caller must inspect the returned model state before retrying.
           return Response.error(
             request_id,
             command,
             "TRANSACTION_VERIFICATION_FAILED",
-            "Lệnh báo thành công nhưng transaction/model revision/entity/property postcondition không đạt yêu cầu",
+            "Lệnh báo thành công nhưng transaction/model revision/entity/property postcondition không đạt yêu cầu; không được tự động retry khi chưa đọc lại model state",
             "TuSketchupAgent::TransactionVerificationError"
-          ).merge(verification: verification)
+          ).merge(
+            verification: verification,
+            mutation_committed: verification[:committed] == true,
+            retry_safe: false,
+            model_state: after_state
+          )
         end
       end
 
