@@ -16,6 +16,8 @@ module TuSketchupAgent
     "core/response",
     "core/verification",
     "core/idempotency",
+    "core/recovery",
+    "core/plan",
     "core/router",
     "core/server",
     "services/entity_service",
@@ -53,12 +55,8 @@ module TuSketchupAgent
     reload!
   end
 
-  # Initial load of all modules & handlers
   load_files!
 
-  # ==========================================
-  # SketchUp Menu & Auto-start
-  # ==========================================
   unless file_loaded?(__FILE__)
     menu = UI.menu("Extensions")
     submenu = menu.add_submenu("Tu SketchUp Agent")
@@ -88,7 +86,6 @@ module TuSketchupAgent
     file_loaded(__FILE__)
   end
 
-  # Auto-start TCP Bridge via timer
   UI.start_timer(0.3, false) do
     Server.start(true) rescue nil
   end
