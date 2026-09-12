@@ -15,6 +15,7 @@ module TuSketchupAgent
     "core/operation",
     "core/response",
     "core/verification",
+    "core/idempotency",
     "core/router",
     "core/server",
     "services/entity_service",
