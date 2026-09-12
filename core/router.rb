@@ -114,11 +114,21 @@ module TuSketchupAgent
           args["plan"],
           router_commands: registered_commands
         )
-        {
-          ok: validation[:valid] == true,
-          plan_validation: validation,
-          operation: "validate_plan"
-        }
+        if validation[:valid]
+          {
+            ok: true,
+            plan_validation: validation,
+            operation: "validate_plan"
+          }
+        else
+          Response.error(
+            request_id,
+            command,
+            "PLAN_INVALID",
+            "Plan không hợp lệ; xem plan_validation.errors để sửa trước khi execute",
+            "TuSketchupAgent::PlanValidationError"
+          ).merge(plan_validation: validation)
+        end
       else
         case command
         when "toggle_dev_mode"
