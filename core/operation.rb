@@ -10,8 +10,20 @@ module TuSketchupAgent
       TuSketchupAgent::ModelState.revision(model)
     end
 
+    # Revision changes requested from inside a transaction are deferred until
+    # commit. This keeps the model revision aligned with the actual committed
+    # SketchUp transaction and prevents aborted operations from advancing it.
     def bump_model_revision(model = nil)
-      TuSketchupAgent::ModelState.bump_revision(model)
+      model ||= Sketchup.active_model
+      raise "No active model" unless model
+
+      if @operation_context && @operation_context[:model].equal?(model)
+        @operation_context[:revision_requested] = true
+        @operation_context[:revision_request_count] += 1
+        @operation_context[:revision]
+      else
+        TuSketchupAgent::ModelState.bump_revision(model)
+      end
     end
 
     def last_transaction
@@ -35,29 +47,59 @@ module TuSketchupAgent
 
       TuSketchupAgent::ModelState.ensure_model!(model)
 
+      previous_context = @operation_context
+      @operation_context = {
+        model: model,
+        revision_requested: false,
+        revision_request_count: 0,
+        revision: TuSketchupAgent::ModelState.revision(model)
+      }
+
       started = false
       @last_transaction = {
         status: "started",
-        operation: op_name
+        operation: op_name,
+        revision_requested: false,
+        revision_request_count: 0
       }
 
       model.start_operation(op_name, true, false, trans)
       started = true
       result = yield
-      started = false
+
+      # Only commit first. A successful commit is the point at which the
+      # deferred revision becomes visible to the model-state contract.
       model.commit_operation
+      started = false
+
+      context = @operation_context
+      if context[:revision_requested]
+        context[:revision] = TuSketchupAgent::ModelState.bump_revision(model)
+      end
+
       @last_transaction = {
         status: "committed",
-        operation: op_name
+        operation: op_name,
+        revision_requested: context[:revision_requested],
+        revision_request_count: context[:revision_request_count],
+        revision_bumped: context[:revision_requested],
+        revision: context[:revision]
       }
       result
     rescue StandardError
       model.abort_operation if started
+      context = @operation_context
       @last_transaction = {
         status: "aborted",
-        operation: op_name
+        operation: op_name,
+        revision_requested: context ? context[:revision_requested] : false,
+        revision_request_count: context ? context[:revision_request_count] : 0,
+        revision_bumped: false,
+        revision: context ? context[:revision] : TuSketchupAgent::ModelState.revision(model)
       }
       raise
+    ensure
+      @operation_context = previous_context
     end
   end
 
