@@ -18,6 +18,7 @@ module TuSketchupAgent
     "core/idempotency",
     "core/recovery",
     "core/plan",
+    "core/plan_checkpoint",
     "core/plan_executor",
     "core/router",
     "core/server",
