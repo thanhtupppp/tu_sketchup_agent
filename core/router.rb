@@ -3,6 +3,7 @@
 require_relative "model_state"
 require_relative "verification"
 require_relative "idempotency"
+require_relative "recovery"
 
 module TuSketchupAgent
   module Router
@@ -32,7 +33,9 @@ module TuSketchupAgent
       started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       unless Auth.verify_token(payload["token"])
-        return Response.error(request_id, command, "UNAUTHORIZED", "Invalid token")
+        return TuSketchupAgent::Recovery.decorate(
+          Response.error(request_id, command, "UNAUTHORIZED", "Invalid token")
+        )
       end
 
       args = payload["arguments"]
@@ -52,7 +55,7 @@ module TuSketchupAgent
 
       if idempotency
         if idempotency[:status] == :conflict
-          return Response.error(
+          response = Response.error(
             request_id,
             command,
             idempotency[:error_code],
@@ -62,6 +65,7 @@ module TuSketchupAgent
             retry_safe: false,
             idempotency: { status: "conflict" }
           )
+          return TuSketchupAgent::Recovery.decorate(response)
         end
 
         replay = idempotency[:response]
@@ -81,14 +85,16 @@ module TuSketchupAgent
 
       if guarded
         model = Sketchup.active_model
-        return Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở") unless model
+        return TuSketchupAgent::Recovery.decorate(
+          Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở")
+        ) unless model
 
         before_state = TuSketchupAgent::ModelState.state(model)
         revision_matches = expected_revision.nil? || TuSketchupAgent::ModelState.matches_revision?(expected_revision, model)
         session_matches = expected_session_id.nil? || expected_session_id.to_s == before_state[:model_session_id].to_s
 
         unless revision_matches && session_matches
-          return Response.error(
+          response = Response.error(
             request_id,
             command,
             "STALE_MODEL_STATE",
@@ -100,6 +106,7 @@ module TuSketchupAgent
             expected_model_session_id: expected_session_id,
             actual_model_session_id: before_state[:model_session_id]
           )
+          return TuSketchupAgent::Recovery.decorate(response)
         end
       end
 
@@ -136,6 +143,8 @@ module TuSketchupAgent
 
       # A mutation handler is identified by the existing response contract:
       # it reports both the operation name and the resulting model revision.
+      # Read-only commands therefore cannot accidentally inherit transaction
+      # metadata from a previous mutation.
       mutation_result = result[:ok] == true &&
         !result[:operation].to_s.empty? && !result[:model_revision].nil?
 
@@ -165,10 +174,6 @@ module TuSketchupAgent
         result[:verification] = verification
 
         if !verification[:verified]
-          # Verification runs after the handler's transaction has returned.
-          # At this point SketchUp may already have committed the mutation, so
-          # never imply that TRANSACTION_VERIFICATION_FAILED means rollback.
-          # The caller must inspect the returned model state before retrying.
           response = Response.error(
             request_id,
             command,
@@ -182,6 +187,7 @@ module TuSketchupAgent
             model_state: after_state,
             transaction: result[:transaction]
           )
+          response = TuSketchupAgent::Recovery.decorate(response)
           return TuSketchupAgent::Idempotency.store(request_id, command, args, after_state[:model_session_id], response)
         end
       end
@@ -206,9 +212,15 @@ module TuSketchupAgent
         )
       end
 
+      if response[:ok] == false
+        return TuSketchupAgent::Recovery.decorate(response)
+      end
+
       response
     rescue StandardError => e
-      Response.error(request_id, command, "INTERNAL_ERROR", e.message, e.class.name)
+      TuSketchupAgent::Recovery.decorate(
+        Response.error(request_id, command, "INTERNAL_ERROR", e.message, e.class.name)
+      )
     end
   end
 
