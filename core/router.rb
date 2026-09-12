@@ -5,6 +5,7 @@ require_relative "verification"
 require_relative "idempotency"
 require_relative "recovery"
 require_relative "plan"
+require_relative "plan_executor"
 
 module TuSketchupAgent
   module Router
@@ -115,11 +116,7 @@ module TuSketchupAgent
           router_commands: registered_commands
         )
         if validation[:valid]
-          {
-            ok: true,
-            plan_validation: validation,
-            operation: "validate_plan"
-          }
+          { ok: true, plan_validation: validation, operation: "validate_plan" }
         else
           Response.error(
             request_id,
@@ -129,6 +126,12 @@ module TuSketchupAgent
             "TuSketchupAgent::PlanValidationError"
           ).merge(plan_validation: validation)
         end
+      elsif command == "execute_plan"
+        TuSketchupAgent::PlanExecutor.execute(
+          args["plan"],
+          router: TuSketchupAgent::Router,
+          base_request_id: request_id
+        )
       else
         case command
         when "toggle_dev_mode"
