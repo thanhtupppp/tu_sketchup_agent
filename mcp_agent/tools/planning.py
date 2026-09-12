@@ -16,9 +16,13 @@ def register(mcp: FastMCP) -> None:
         return json.dumps(res, indent=2, ensure_ascii=False)
 
     @mcp.tool()
-    def sketchup_execute_plan(plan: Dict[str, Any]) -> str:
-        """Execute a plan sequentially; each step is pinned to the current model state and execution stops on failure."""
+    def sketchup_execute_plan(plan: Dict[str, Any], resume: bool = False) -> str:
+        """Execute or resume a sequential plan using checkpoint + model session/revision guards."""
         if not isinstance(plan, dict):
             raise ValueError("plan phải là object/dict")
-        res = send_to_sketchup("execute_plan", {"plan": plan}, timeout=120.0)
+        res = send_to_sketchup(
+            "execute_plan",
+            {"plan": plan, "resume": resume},
+            timeout=120.0,
+        )
         return json.dumps(res, indent=2, ensure_ascii=False)
