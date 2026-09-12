@@ -2,6 +2,7 @@
 
 require_relative "model_state"
 require_relative "verification"
+require_relative "idempotency"
 
 module TuSketchupAgent
   module Router
@@ -36,6 +37,40 @@ module TuSketchupAgent
 
       args = payload["arguments"]
       args = {} unless args.is_a?(Hash)
+
+      # Idempotency is checked before any handler can mutate the model. A
+      # completed mutation can therefore be safely replayed after a client-side
+      # timeout without executing the mutation twice.
+      current_model = Sketchup.active_model
+      current_session_id = current_model ? TuSketchupAgent::ModelState.state(current_model)[:model_session_id] : nil
+      idempotency = TuSketchupAgent::Idempotency.lookup(
+        request_id,
+        command,
+        args,
+        current_session_id
+      )
+
+      if idempotency
+        if idempotency[:status] == :conflict
+          return Response.error(
+            request_id,
+            command,
+            idempotency[:error_code],
+            idempotency[:message],
+            "TuSketchupAgent::IdempotencyError"
+          ).merge(
+            retry_safe: false,
+            idempotency: { status: "conflict" }
+          )
+        end
+
+        replay = idempotency[:response]
+        replay[:idempotency] = {
+          status: "replayed",
+          request_id: request_id
+        }
+        return replay
+      end
 
       # Optional optimistic-concurrency guard. Clients can pin a command to
       # both the current model session and revision to avoid acting on stale state.
@@ -101,8 +136,6 @@ module TuSketchupAgent
 
       # A mutation handler is identified by the existing response contract:
       # it reports both the operation name and the resulting model revision.
-      # Read-only commands therefore cannot accidentally inherit transaction
-      # metadata from a previous mutation.
       mutation_result = result[:ok] == true &&
         !result[:operation].to_s.empty? && !result[:model_revision].nil?
 
@@ -136,7 +169,7 @@ module TuSketchupAgent
           # At this point SketchUp may already have committed the mutation, so
           # never imply that TRANSACTION_VERIFICATION_FAILED means rollback.
           # The caller must inspect the returned model state before retrying.
-          return Response.error(
+          response = Response.error(
             request_id,
             command,
             "TRANSACTION_VERIFICATION_FAILED",
@@ -149,14 +182,31 @@ module TuSketchupAgent
             model_state: after_state,
             transaction: result[:transaction]
           )
+          return TuSketchupAgent::Idempotency.store(request_id, command, args, after_state[:model_session_id], response)
         end
       end
 
-      result.merge(
+      response = result.merge(
         request_id: request_id,
         command: command,
         duration_ms: Response.elapsed_ms(started_at)
       )
+
+      if mutation_result
+        response[:idempotency] = {
+          status: "stored",
+          request_id: request_id
+        }
+        return TuSketchupAgent::Idempotency.store(
+          request_id,
+          command,
+          args,
+          current_session_id || TuSketchupAgent::ModelState.state(Sketchup.active_model)[:model_session_id],
+          response
+        )
+      end
+
+      response
     rescue StandardError => e
       Response.error(request_id, command, "INTERNAL_ERROR", e.message, e.class.name)
     end
