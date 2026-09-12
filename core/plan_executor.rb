@@ -9,7 +9,8 @@ module TuSketchupAgent
   module PlanExecutor
     extend self
 
-    def execute(plan, router: TuSketchupAgent::Router, base_request_id: nil, resume: false)
+    def execute(plan, router: TuSketchupAgent::Router, base_request_id: nil, **options)
+      resume = options.key?(:resume) ? !!options[:resume] : false
       validation = Plan.validate(plan, router_commands: router.registered_commands)
       unless validation[:valid]
         return {
@@ -151,7 +152,7 @@ module TuSketchupAgent
       end
 
       state_after = ModelState.state(model)
-      PlanCheckpoint.save(
+      checkpoint_after = PlanCheckpoint.save(
         plan_id,
         state_after,
         step_results.select { |item| item[:ok] },
@@ -166,7 +167,7 @@ module TuSketchupAgent
         resumed_from_step_index: start_index,
         step_count: normalized[:steps].length,
         steps: step_results,
-        checkpoint: PlanCheckpoint.get(plan_id),
+        checkpoint: checkpoint_after || PlanCheckpoint.get(plan_id),
         model_state_before: state_before,
         model_state_after: state_after,
         duration_ms: elapsed_ms(started_at)
