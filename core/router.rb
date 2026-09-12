@@ -99,7 +99,14 @@ module TuSketchupAgent
         result.delete(:error_class)
       end
 
-      if guarded && before_state
+      # Verification is a mutation postcondition. Read-only guarded commands
+      # (ping, model_summary, get_model_state, etc.) must not be forced through
+      # the revision-delta == 1 contract. Mutation handlers identify themselves
+      # with both an operation and the resulting model_revision.
+      verification_requested = guarded && before_state && result[:ok] == true &&
+        !result[:operation].to_s.empty? && !result[:model_revision].nil?
+
+      if verification_requested
         model = Sketchup.active_model
         after_state = TuSketchupAgent::ModelState.state(model)
         verification = TuSketchupAgent::Verification.contract(
@@ -107,14 +114,14 @@ module TuSketchupAgent
           before_state: before_state,
           after_state: after_state,
           transaction: Operation.last_transaction,
-          handler_ok: result[:ok] == true,
+          handler_ok: true,
           result: result,
           model: model,
           args: args
         )
         result[:verification] = verification
 
-        if result[:ok] == true && !verification[:verified]
+        if !verification[:verified]
           # Verification runs after the handler's transaction has returned.
           # At this point SketchUp may already have committed the mutation, so
           # never imply that TRANSACTION_VERIFICATION_FAILED means rollback.
