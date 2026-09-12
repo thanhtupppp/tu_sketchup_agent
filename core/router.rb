@@ -6,6 +6,7 @@ require_relative "idempotency"
 require_relative "recovery"
 require_relative "plan"
 require_relative "plan_executor"
+require_relative "plan_checkpoint"
 
 module TuSketchupAgent
   module Router
@@ -130,7 +131,8 @@ module TuSketchupAgent
         TuSketchupAgent::PlanExecutor.execute(
           args["plan"],
           router: TuSketchupAgent::Router,
-          base_request_id: request_id
+          base_request_id: request_id,
+          resume: args["resume"] == true
         )
       else
         case command
@@ -158,6 +160,12 @@ module TuSketchupAgent
           class: result[:error_class]
         }
         result.delete(:error_class)
+      end
+
+      # Defense-in-depth: every execute_plan response exposes its checkpoint
+      # through Router even when an older in-memory executor omitted it.
+      if command == "execute_plan" && result[:plan_id] && !result.key?(:checkpoint)
+        result[:checkpoint] = TuSketchupAgent::PlanCheckpoint.get(result[:plan_id])
       end
 
       mutation_result = result[:ok] == true &&
