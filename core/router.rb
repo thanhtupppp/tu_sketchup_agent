@@ -4,6 +4,7 @@ require_relative "model_state"
 require_relative "verification"
 require_relative "idempotency"
 require_relative "recovery"
+require_relative "plan"
 
 module TuSketchupAgent
   module Router
@@ -41,9 +42,6 @@ module TuSketchupAgent
       args = payload["arguments"]
       args = {} unless args.is_a?(Hash)
 
-      # Idempotency is checked before any handler can mutate the model. A
-      # completed mutation can therefore be safely replayed after a client-side
-      # timeout without executing the mutation twice.
       current_model = Sketchup.active_model
       current_session_id = current_model ? TuSketchupAgent::ModelState.state(current_model)[:model_session_id] : nil
       idempotency = TuSketchupAgent::Idempotency.lookup(
@@ -76,8 +74,6 @@ module TuSketchupAgent
         return replay
       end
 
-      # Optional optimistic-concurrency guard. Clients can pin a command to
-      # both the current model session and revision to avoid acting on stale state.
       expected_revision = args["expected_model_revision"]
       expected_session_id = args["expected_model_session_id"]
       guarded = !expected_revision.nil? || !expected_session_id.nil?
@@ -113,6 +109,16 @@ module TuSketchupAgent
       handler = @handlers[command]
       result = if handler
         handler.call(args)
+      elsif command == "validate_plan"
+        validation = TuSketchupAgent::Plan.validate(
+          args["plan"],
+          router_commands: registered_commands
+        )
+        {
+          ok: validation[:valid] == true,
+          plan_validation: validation,
+          operation: "validate_plan"
+        }
       else
         case command
         when "toggle_dev_mode"
@@ -141,10 +147,6 @@ module TuSketchupAgent
         result.delete(:error_class)
       end
 
-      # A mutation handler is identified by the existing response contract:
-      # it reports both the operation name and the resulting model revision.
-      # Read-only commands therefore cannot accidentally inherit transaction
-      # metadata from a previous mutation.
       mutation_result = result[:ok] == true &&
         !result[:operation].to_s.empty? && !result[:model_revision].nil?
 
@@ -152,10 +154,6 @@ module TuSketchupAgent
         result[:transaction] = TuSketchupAgent::Operation.transaction_metadata
       end
 
-      # Verification is a mutation postcondition. Read-only guarded commands
-      # (ping, model_summary, get_model_state, etc.) must not be forced through
-      # the revision-delta == 1 contract. Mutation handlers identify themselves
-      # with both an operation and the resulting model_revision.
       verification_requested = guarded && before_state && mutation_result
 
       if verification_requested
@@ -224,7 +222,6 @@ module TuSketchupAgent
     end
   end
 
-  # Module-level delegate for backward compatibility
   def self.dispatch(payload)
     Router.dispatch(payload)
   end
