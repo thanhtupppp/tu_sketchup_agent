@@ -7,6 +7,7 @@ require_relative "recovery"
 require_relative "plan"
 require_relative "plan_executor"
 require_relative "plan_checkpoint"
+require_relative "plan_preflight"
 
 module TuSketchupAgent
   module Router
@@ -36,9 +37,7 @@ module TuSketchupAgent
       started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       unless Auth.verify_token(payload["token"])
-        return TuSketchupAgent::Recovery.decorate(
-          Response.error(request_id, command, "UNAUTHORIZED", "Invalid token")
-        )
+        return TuSketchupAgent::Recovery.decorate(Response.error(request_id, command, "UNAUTHORIZED", "Invalid token"))
       end
 
       args = payload["arguments"]
@@ -46,33 +45,18 @@ module TuSketchupAgent
 
       current_model = Sketchup.active_model
       current_session_id = current_model ? TuSketchupAgent::ModelState.state(current_model)[:model_session_id] : nil
-      idempotency = TuSketchupAgent::Idempotency.lookup(
-        request_id,
-        command,
-        args,
-        current_session_id
-      )
+      idempotency = TuSketchupAgent::Idempotency.lookup(request_id, command, args, current_session_id)
 
       if idempotency
         if idempotency[:status] == :conflict
-          response = Response.error(
-            request_id,
-            command,
-            idempotency[:error_code],
-            idempotency[:message],
-            "TuSketchupAgent::IdempotencyError"
-          ).merge(
+          response = Response.error(request_id, command, idempotency[:error_code], idempotency[:message], "TuSketchupAgent::IdempotencyError").merge(
             retry_safe: false,
             idempotency: { status: "conflict" }
           )
           return TuSketchupAgent::Recovery.decorate(response)
         end
-
         replay = idempotency[:response]
-        replay[:idempotency] = {
-          status: "replayed",
-          request_id: request_id
-        }
+        replay[:idempotency] = { status: "replayed", request_id: request_id }
         return replay
       end
 
@@ -83,22 +67,12 @@ module TuSketchupAgent
 
       if guarded
         model = Sketchup.active_model
-        return TuSketchupAgent::Recovery.decorate(
-          Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở")
-        ) unless model
-
+        return TuSketchupAgent::Recovery.decorate(Response.error(request_id, command, "NO_ACTIVE_MODEL", "Không có model nào đang mở")) unless model
         before_state = TuSketchupAgent::ModelState.state(model)
         revision_matches = expected_revision.nil? || TuSketchupAgent::ModelState.matches_revision?(expected_revision, model)
         session_matches = expected_session_id.nil? || expected_session_id.to_s == before_state[:model_session_id].to_s
-
         unless revision_matches && session_matches
-          response = Response.error(
-            request_id,
-            command,
-            "STALE_MODEL_STATE",
-            "Model state đã thay đổi; hãy đọc lại get_model_state trước khi thực hiện lệnh",
-            "TuSketchupAgent::StaleModelStateError"
-          ).merge(
+          response = Response.error(request_id, command, "STALE_MODEL_STATE", "Model state đã thay đổi; hãy đọc lại get_model_state trước khi thực hiện lệnh", "TuSketchupAgent::StaleModelStateError").merge(
             expected_model_revision: expected_revision,
             actual_model_revision: before_state[:revision],
             expected_model_session_id: expected_session_id,
@@ -112,28 +86,21 @@ module TuSketchupAgent
       result = if handler
         handler.call(args)
       elsif command == "validate_plan"
-        validation = TuSketchupAgent::Plan.validate(
-          args["plan"],
-          router_commands: registered_commands
-        )
+        validation = TuSketchupAgent::Plan.validate(args["plan"], router_commands: registered_commands)
         if validation[:valid]
           { ok: true, plan_validation: validation, operation: "validate_plan" }
         else
-          Response.error(
-            request_id,
-            command,
-            "PLAN_INVALID",
-            "Plan không hợp lệ; xem plan_validation.errors để sửa trước khi execute",
-            "TuSketchupAgent::PlanValidationError"
-          ).merge(plan_validation: validation)
+          Response.error(request_id, command, "PLAN_INVALID", "Plan không hợp lệ; xem plan_validation.errors để sửa trước khi execute", "TuSketchupAgent::PlanValidationError").merge(plan_validation: validation)
+        end
+      elsif command == "preflight_plan"
+        preflight = TuSketchupAgent::PlanPreflight.validate(args["plan"], model: Sketchup.active_model, router_commands: registered_commands)
+        if preflight[:valid]
+          { ok: true, plan_preflight: preflight, operation: "preflight_plan" }
+        else
+          Response.error(request_id, command, "PLAN_PREFLIGHT_FAILED", "Plan không đạt preflight; chưa thực hiện mutation nào", "TuSketchupAgent::PlanPreflightError").merge(plan_preflight: preflight)
         end
       elsif command == "execute_plan"
-        TuSketchupAgent::PlanExecutor.execute(
-          args["plan"],
-          router: TuSketchupAgent::Router,
-          base_request_id: request_id,
-          resume: args["resume"] == true
-        )
+        TuSketchupAgent::PlanExecutor.execute(args["plan"], router: TuSketchupAgent::Router, base_request_id: request_id, resume: args["resume"] == true)
       else
         case command
         when "toggle_dev_mode"
@@ -145,38 +112,21 @@ module TuSketchupAgent
         end
       end
 
-      result = {
-        ok: false,
-        error: {
-          code: "INVALID_HANDLER_RESPONSE",
-          message: "Command handler không trả về Hash"
-        }
-      } unless result.is_a?(Hash)
+      result = { ok: false, error: { code: "INVALID_HANDLER_RESPONSE", message: "Command handler không trả về Hash" } } unless result.is_a?(Hash)
 
       if result[:ok] == false && result[:error].is_a?(String)
-        result[:error] = {
-          code: "HANDLER_ERROR",
-          message: result[:error],
-          class: result[:error_class]
-        }
+        result[:error] = { code: "HANDLER_ERROR", message: result[:error], class: result[:error_class] }
         result.delete(:error_class)
       end
 
-      # Defense-in-depth: every execute_plan response exposes its checkpoint
-      # through Router even when an older in-memory executor omitted it.
       if command == "execute_plan" && result[:plan_id] && !result.key?(:checkpoint)
         result[:checkpoint] = TuSketchupAgent::PlanCheckpoint.get(result[:plan_id])
       end
 
-      mutation_result = result[:ok] == true &&
-        !result[:operation].to_s.empty? && !result[:model_revision].nil?
-
-      if mutation_result
-        result[:transaction] = TuSketchupAgent::Operation.transaction_metadata
-      end
+      mutation_result = result[:ok] == true && !result[:operation].to_s.empty? && !result[:model_revision].nil?
+      result[:transaction] = TuSketchupAgent::Operation.transaction_metadata if mutation_result
 
       verification_requested = guarded && before_state && mutation_result
-
       if verification_requested
         model = Sketchup.active_model
         after_state = TuSketchupAgent::ModelState.state(model)
@@ -191,15 +141,8 @@ module TuSketchupAgent
           args: args
         )
         result[:verification] = verification
-
-        if !verification[:verified]
-          response = Response.error(
-            request_id,
-            command,
-            "TRANSACTION_VERIFICATION_FAILED",
-            "Lệnh báo thành công nhưng transaction/model revision/entity/property postcondition không đạt yêu cầu; không được tự động retry khi chưa đọc lại model state",
-            "TuSketchupAgent::TransactionVerificationError"
-          ).merge(
+        unless verification[:verified]
+          response = Response.error(request_id, command, "TRANSACTION_VERIFICATION_FAILED", "Lệnh báo thành công nhưng transaction/model revision/entity/property postcondition không đạt yêu cầu; không được tự động retry khi chưa đọc lại model state", "TuSketchupAgent::TransactionVerificationError").merge(
             verification: verification,
             mutation_committed: verification[:committed] == true,
             retry_safe: false,
@@ -211,35 +154,16 @@ module TuSketchupAgent
         end
       end
 
-      response = result.merge(
-        request_id: request_id,
-        command: command,
-        duration_ms: Response.elapsed_ms(started_at)
-      )
-
+      response = result.merge(request_id: request_id, command: command, duration_ms: Response.elapsed_ms(started_at))
       if mutation_result
-        response[:idempotency] = {
-          status: "stored",
-          request_id: request_id
-        }
-        return TuSketchupAgent::Idempotency.store(
-          request_id,
-          command,
-          args,
-          current_session_id || TuSketchupAgent::ModelState.state(Sketchup.active_model)[:model_session_id],
-          response
-        )
+        response[:idempotency] = { status: "stored", request_id: request_id }
+        return TuSketchupAgent::Idempotency.store(request_id, command, args, current_session_id || TuSketchupAgent::ModelState.state(Sketchup.active_model)[:model_session_id], response)
       end
 
-      if response[:ok] == false
-        return TuSketchupAgent::Recovery.decorate(response)
-      end
-
+      response[:recovery] = TuSketchupAgent::Recovery.decorate(response)[:recovery] if response[:ok] == false
       response
     rescue StandardError => e
-      TuSketchupAgent::Recovery.decorate(
-        Response.error(request_id, command, "INTERNAL_ERROR", e.message, e.class.name)
-      )
+      TuSketchupAgent::Recovery.decorate(Response.error(request_id, command, "INTERNAL_ERROR", e.message, e.class.name))
     end
   end
 
