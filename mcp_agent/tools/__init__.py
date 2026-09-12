@@ -12,6 +12,7 @@ from . import (
     geometry,
     inspection,
     materials,
+    planning,
     scenes,
     system,
     transform,
@@ -29,3 +30,4 @@ def register_all_tools(mcp: FastMCP) -> None:
     components.register(mcp)
     assembly.register(mcp)
     scenes.register(mcp)
+    planning.register(mcp)
