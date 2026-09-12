@@ -3,12 +3,13 @@
 require_relative "plan"
 require_relative "model_state"
 require_relative "../services/entity_service"
+require_relative "plan_references"
 
 module TuSketchupAgent
   module PlanPreflight
     extend self
 
-    CONTRACT_VERSION = 1
+    CONTRACT_VERSION = 2
 
     REQUIRED_ARGS = {
       "create_box" => %w[width depth height],
@@ -45,18 +46,23 @@ module TuSketchupAgent
       errors = Array(plan_validation[:errors]).dup
       warnings = Array(plan_validation[:warnings]).dup
       checks = []
+      reference_validation = { valid: true, errors: [], warnings: [] }
 
       unless plan_validation[:valid]
-        return result(false, plan_validation, checks, errors, warnings, model_state(model))
+        return result(false, plan_validation, checks, errors, warnings, model_state(model), reference_validation)
       end
 
       unless model
         errors << "Không có model đang mở"
-        return result(false, plan_validation, checks, errors, warnings, nil)
+        return result(false, plan_validation, checks, errors, warnings, nil, reference_validation)
       end
 
-      state = model_state(model)
       steps = Plan.normalize(plan)[:steps]
+      reference_validation = PlanReferences.validate_references(steps)
+      errors.concat(reference_validation[:errors])
+      warnings.concat(reference_validation[:warnings])
+
+      state = model_state(model)
       seen_step_ids = {}
 
       steps.each_with_index do |step, index|
@@ -73,15 +79,32 @@ module TuSketchupAgent
 
         REQUIRED_ARGS.fetch(command, []).each do |key|
           value = args[key] || args[key.to_sym]
-          errors << "#{prefix}.arguments thiếu tham số bắt buộc: #{key}" if value.nil? || (value.respond_to?(:empty?) && value.empty?)
+          if value.nil? || (value.respond_to?(:empty?) && value.empty?)
+            if value.is_a?(String) && value.start_with?(PlanReferences::PREFIX)
+              next
+            end
+            errors << "#{prefix}.arguments thiếu tham số bắt buộc: #{key}"
+          end
         end
 
         if ENTITY_COMMANDS.include?(command)
           ids = extract_entity_targets(args)
-          if ids.empty?
+          literal_ids, refs = ids.partition { |id| !id.is_a?(String) || !id.start_with?(PlanReferences::PREFIX) }
+          unless refs.empty?
+            checks << {
+              step_index: index,
+              step_id: step_id,
+              command: command,
+              required_arguments_checked: REQUIRED_ARGS.fetch(command, []),
+              entity_dependency_checked: true,
+              entity_dependencies: { literal_checked: literal_ids.length, references: PlanReferences.references(args) }
+            }
+          end
+
+          if literal_ids.empty? && refs.empty?
             errors << "#{prefix}.arguments thiếu ID entity cho command #{command}"
           else
-            missing = ids.reject { |id| Services::EntityService.find_entity(model, id) }
+            missing = literal_ids.reject { |id| Services::EntityService.find_entity(model, id) }
             unless missing.empty?
               errors << "#{prefix} entity dependency không tồn tại: #{missing.map(&:to_s).join(', ')}"
             end
@@ -93,11 +116,12 @@ module TuSketchupAgent
           step_id: step_id,
           command: command,
           required_arguments_checked: REQUIRED_ARGS.fetch(command, []),
-          entity_dependency_checked: ENTITY_COMMANDS.include?(command)
+          entity_dependency_checked: ENTITY_COMMANDS.include?(command),
+          references: PlanReferences.references(args)
         }
       end
 
-      result(errors.empty?, plan_validation, checks, errors, warnings, state)
+      result(errors.empty?, plan_validation, checks, errors, warnings, state, reference_validation)
     end
 
     private
@@ -124,12 +148,13 @@ module TuSketchupAgent
       model ? TuSketchupAgent::ModelState.state(model) : nil
     end
 
-    def result(valid, plan_validation, checks, errors, warnings, state)
+    def result(valid, plan_validation, checks, errors, warnings, state, reference_validation)
       {
         valid: valid,
         contract_version: CONTRACT_VERSION,
         plan_validation: plan_validation,
         checks: checks,
+        reference_validation: reference_validation,
         errors: errors,
         warnings: warnings,
         model_state: state
