@@ -8,17 +8,18 @@ module TuSketchupAgent
     @entries = {}
     @order = []
 
-    def save(plan_id, model_state, completed_steps, status: "running", failed_step_index: nil)
+    def save(plan_id, model_state, completed_steps, status: "running", failed_step_index: nil, outputs: {})
       key = plan_id.to_s
       return nil if key.empty?
 
       entry = {
         plan_id: key,
-        contract_version: 1,
+        contract_version: 2,
         model_session_id: model_state[:model_session_id],
         model_revision: model_state[:revision],
         completed_step_ids: Array(completed_steps).map { |step| step[:step_id].to_s },
         completed_count: Array(completed_steps).length,
+        outputs: deep_dup(outputs || {}),
         status: status.to_s,
         failed_step_index: failed_step_index,
         updated_at_unix: Time.now.to_f
@@ -26,12 +27,12 @@ module TuSketchupAgent
       @entries[key] = entry
       touch(key)
       trim!
-      entry.dup
+      deep_dup(entry)
     end
 
     def get(plan_id)
       entry = @entries[plan_id.to_s]
-      entry && entry.dup
+      entry && deep_dup(entry)
     end
 
     def clear(plan_id)
@@ -48,6 +49,12 @@ module TuSketchupAgent
     end
 
     private
+
+    def deep_dup(value)
+      Marshal.load(Marshal.dump(value))
+    rescue StandardError
+      value
+    end
 
     def touch(key)
       @order.delete(key)
